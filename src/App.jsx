@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
@@ -12,11 +12,17 @@ import {
     doc, 
     setDoc, 
     getDoc,
+    updateDoc,
+    collection,
+    writeBatch,
+    query,
+    where,
+    getDocs,
     Timestamp 
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// IMPORTANT: Replace this with your own Firebase project configuration.
+// IMPORTANT: Make sure this is replaced with your own Firebase project configuration.
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -32,6 +38,12 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// --- Helper Functions ---
+const formatDate = (date) => {
+    const d = date.toDate();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 // --- Main App Component ---
 export default function App() {
     const [user, setUser] = useState(null);
@@ -39,36 +51,48 @@ export default function App() {
     const [restaurant, setRestaurant] = useState(null);
     const [activeScreen, setActiveScreen] = useState('dashboard');
 
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-            if (currentUser) {
-                const restaurantRef = doc(db, 'restaurants', currentUser.uid);
-                const docSnap = await getDoc(restaurantRef);
-                if (docSnap.exists()) {
-                    setRestaurant(docSnap.data());
-                } else {
-                    const newRestaurant = {
-                        owner: currentUser.displayName,
-                        name: `${currentUser.displayName}'s Place`,
-                        subscription: 'free',
-                        dishes: [],
-                        createdAt: Timestamp.now(),
-                    };
-                    await setDoc(restaurantRef, newRestaurant);
-                    setRestaurant(newRestaurant);
-                }
-                setUser(currentUser);
-            } else {
-                setUser(null);
-                setRestaurant(null);
-            }
+    const fetchRestaurantData = useCallback(async (currentUser) => {
+        if (!currentUser) {
+            setUser(null);
+            setRestaurant(null);
             setLoading(false);
-        });
-        return () => unsubscribe();
+            return;
+        }
+
+        const restaurantRef = doc(db, 'restaurants', currentUser.uid);
+        const docSnap = await getDoc(restaurantRef);
+        if (docSnap.exists()) {
+            setRestaurant(docSnap.data());
+        } else {
+            const newRestaurant = {
+                owner: currentUser.displayName,
+                name: `${currentUser.displayName}'s Place`,
+                subscription: 'free',
+                dishes: [
+                    { id: 'dish1', name: 'Chicken Biryani' },
+                    { id: 'dish2', name: 'Paneer Butter Masala' },
+                    { id: 'dish3', name: 'Masala Dosa' },
+                ],
+                createdAt: Timestamp.now(),
+            };
+            await setDoc(restaurantRef, newRestaurant);
+            setRestaurant(newRestaurant);
+        }
+        setUser(currentUser);
+        setLoading(false);
     }, []);
 
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, fetchRestaurantData);
+        return () => unsubscribe();
+    }, [fetchRestaurantData]);
+    
+    const updateRestaurant = (newData) => {
+        setRestaurant(prev => ({...prev, ...newData}));
+    };
+
     if (loading) {
-        return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-xl font-semibold">Loading SmartChef AI...</div></div>;
+        return <LoadingScreen message="Loading SmartChef AI..." />;
     }
 
     if (!user) {
@@ -76,14 +100,14 @@ export default function App() {
     }
 
     if (!restaurant) {
-        return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-xl font-semibold">Loading Restaurant...</div></div>;
+        return <LoadingScreen message="Loading Restaurant..." />;
     }
 
     const ScreenComponent = {
-        dashboard: <DashboardScreen restaurant={restaurant} />,
+        dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
         orders: <LiveOrdersScreen restaurant={restaurant} />,
         reports: <ReportsScreen restaurant={restaurant} />,
-        settings: <SettingsScreen user={user} />,
+        settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
     }[activeScreen];
 
     return (
@@ -97,6 +121,12 @@ export default function App() {
 }
 
 // --- Screens & Components ---
+
+const LoadingScreen = ({ message }) => (
+    <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-xl font-semibold text-gray-700">{message}</div>
+    </div>
+);
 
 const AuthScreen = () => {
     const signInWithGoogle = async () => {
@@ -122,112 +152,246 @@ const AuthScreen = () => {
     );
 };
 
+const DashboardScreen = ({ restaurant, userId }) => {
+    const [isSalesModalOpen, setSalesModalOpen] = useState(false);
+    const [predictions, setPredictions] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-const DashboardScreen = ({ restaurant }) => {
-    // Mock data for predictions
-    const predictions = useMemo(() => [
-        { id: 1, name: 'Chicken Biryani', prediction: 22, confidence: 92, wastage: true },
-        { id: 2, name: 'Paneer Butter Masala', prediction: 12, confidence: 85, wastage: false },
-        { id: 3, name: 'Masala Dosa', prediction: 40, confidence: 95, wastage: false },
-    ], []);
+    const calculatePredictions = useCallback(async () => {
+        setLoading(true);
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+
+        const salesQuery = query(
+            collection(db, 'daily_sales'),
+            where('userId', '==', userId),
+            where('date', '>=', sevenDaysAgoTimestamp)
+        );
+
+        const querySnapshot = await getDocs(salesQuery);
+        const salesData = {};
+        restaurant.dishes.forEach(d => salesData[d.id] = []);
+
+        querySnapshot.forEach(doc => {
+            const data = doc.data();
+            if (salesData[data.dishId]) {
+                salesData[data.dishId].push(data);
+            }
+        });
+
+        const newPredictions = restaurant.dishes.map(dish => {
+            const dishSales = salesData[dish.id];
+            let prediction = 5; // Default prediction
+            let confidence = 20;
+            let totalSold = 0;
+            let totalWasted = 0;
+
+            if (dishSales.length > 0) {
+                const sum = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
+                prediction = Math.round(sum / dishSales.length);
+                confidence = Math.min(95, 20 + dishSales.length * 10);
+                totalSold = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
+                totalWasted = dishSales.reduce((acc, curr) => acc + curr.quantityWasted, 0);
+            }
+            
+            const totalPrepared = totalSold + totalWasted;
+            const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
+            
+            return {
+                id: dish.id,
+                name: dish.name,
+                prediction,
+                confidence,
+                wastage: wastagePercent > 15,
+                wastagePercent
+            };
+        });
+        
+        setPredictions(newPredictions);
+        setLoading(false);
+    }, [userId, restaurant.dishes]);
+
+    useEffect(() => {
+        calculatePredictions();
+    }, [calculatePredictions]);
 
     return (
         <div>
-            <Header title={`${restaurant.name}`} />
+            <Header title={restaurant.name} />
             <div className="bg-white p-4 rounded-lg shadow mb-4">
-                <button className="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center">
+                <button 
+                    onClick={() => setSalesModalOpen(true)}
+                    className="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center"
+                >
                     <PlusIcon className="h-6 w-6 mr-2" />
                     Enter Yesterday's Sales
                 </button>
             </div>
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
-            <div className="space-y-3">
-                {predictions.map(item => (
-                    <div key={item.id} className="bg-white p-4 rounded-lg shadow">
-                        <h3 className="font-bold text-lg">{item.name}</h3>
-                        <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
-                        {item.wastage && (
-                            <p className="text-yellow-600 font-semibold flex items-center mt-1">
-                                <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week!
-                            </p>
-                        )}
-                        <button className="absolute top-2 right-2 text-gray-400 hover:text-indigo-600">
-                           <PencilIcon className="h-5 w-5" />
-                        </button>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const LiveOrdersScreen = ({ restaurant }) => {
-    const isPro = restaurant.subscription === 'pro';
-
-    // Mock data for orders
-     const orders = useMemo(() => [
-        { id: 101, customerName: 'Anjali Rao', status: 'pending', total: 550, items: ["2x Chicken Biryani", "1x Gulab Jamun"] },
-        { id: 102, customerName: 'Vikram Singh', status: 'accepted', total: 350, items: ["1x Masala Dosa", "1x Veg Hakka Noodles"] },
-        { id: 103, customerName: 'Priya Sharma', status: 'delivered', total: 720, items: ["3x Paneer Butter Masala", "4x Naan"] },
-    ], []);
-
-    if (!isPro) {
-        return <ProFeatureLock title="Live Order Hub" description="Upgrade to Pro to manage commission-free direct orders from your own QR code." />;
-    }
-
-    return (
-        <div>
-            <Header title="Live Orders" />
-            <div className="space-y-3">
-                {orders.map(order => (
-                    <div key={order.id} className="bg-white p-4 rounded-lg shadow relative">
-                         <span className={`absolute top-2 right-2 text-xs font-bold px-2 py-1 rounded-full ${
-                            order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 
-                            order.status === 'accepted' ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800'
-                        }`}>{order.status}</span>
-                        <h3 className="font-bold text-lg">{order.customerName} - #{order.id}</h3>
-                        <p className="text-gray-600 text-sm">{order.items.join(', ')}</p>
-                        <p className="font-bold text-gray-800 mt-2">Total: ₹{order.total}</p>
-                        <div className="mt-3 flex space-x-2">
-                           {order.status === 'pending' && <button className="flex-1 bg-green-500 text-white font-bold py-2 px-3 rounded-lg text-sm">Accept</button>}
-                           {order.status === 'accepted' && <button className="flex-1 bg-cyan-500 text-white font-bold py-2 px-3 rounded-lg text-sm">Book Delivery</button>}
-                           <button className="flex-1 bg-red-500 text-white font-bold py-2 px-3 rounded-lg text-sm">Reject</button>
+            {loading ? <p>Calculating predictions...</p> : (
+                <div className="space-y-3">
+                    {predictions.map(item => (
+                        <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
+                            <h3 className="font-bold text-lg">{item.name}</h3>
+                            <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
+                            {item.wastage && (
+                                <p className="text-yellow-600 font-semibold flex items-center mt-1">
+                                    <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%)
+                                </p>
+                            )}
+                            {/* Edit Button Placeholder */}
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
+            {isSalesModalOpen && (
+                <SalesEntryModal 
+                    dishes={restaurant.dishes} 
+                    userId={userId}
+                    onClose={() => setSalesModalOpen(false)}
+                    onSave={calculatePredictions}
+                />
+            )}
         </div>
     );
 };
 
-const ReportsScreen = ({ restaurant }) => {
-    const isPro = restaurant.subscription === 'pro';
+const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
+    const [salesData, setSalesData] = useState(
+        dishes.reduce((acc, dish) => {
+            acc[dish.id] = { sold: '', wasted: '' };
+            return acc;
+        }, {})
+    );
+    const [isSaving, setIsSaving] = useState(false);
 
-    if (!isPro) {
-        return <ProFeatureLock title="Advanced Reports" description="Upgrade to Pro to download sales data and get advanced menu engineering insights." />;
-    }
+    const handleInputChange = (dishId, field, value) => {
+        const numValue = value === '' ? '' : Math.max(0, parseInt(value, 10));
+        setSalesData(prev => ({
+            ...prev,
+            [dishId]: { ...prev[dishId], [field]: numValue }
+        }));
+    };
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const date = Timestamp.fromDate(yesterday);
+            const batch = writeBatch(db);
+
+            for (const dish of dishes) {
+                const sold = salesData[dish.id].sold || 0;
+                const wasted = salesData[dish.id].wasted || 0;
+                
+                if (sold > 0 || wasted > 0) {
+                    const docId = `${formatDate(date)}-${dish.id}`;
+                    const saleRef = doc(db, 'daily_sales', docId);
+                    batch.set(saleRef, {
+                        userId,
+                        dishId: dish.id,
+                        dishName: dish.name,
+                        quantitySold: sold,
+                        quantityWasted: wasted,
+                        date,
+                    });
+                }
+            }
+            await batch.commit();
+            onSave(); // Refresh dashboard predictions
+            onClose();
+        } catch (error) {
+            console.error("Error saving sales data: ", error);
+            alert("Failed to save sales data. Please try again.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
     
     return (
-         <div>
-            <Header title="Reports & Insights" />
-            <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="font-bold text-lg mb-2">Menu Engineering</h3>
-                <p className="text-sm text-gray-600 mb-3">📈 <span className="font-semibold">Top Performer:</span> Chicken Biryani is your most sold and most profitable item. Consider creating a combo offer with it.</p>
-                <p className="text-sm text-gray-600">🤔 <span className="font-semibold">Opportunity:</span> Paneer Butter Masala sells well but has high wastage. Our AI suggests reducing prep quantity by 2 units on weekdays.</p>
-            </div>
-             <div className="bg-white p-4 rounded-lg shadow mt-4">
-                <h3 className="font-bold text-lg mb-2">Export Data</h3>
-                <button className="w-full bg-gray-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-800 transition duration-300 flex items-center justify-center">
-                    <DownloadIcon className="h-6 w-6 mr-2" />
-                    Download Sales Data (CSV)
-                </button>
+         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+                <div className="p-4 border-b">
+                    <h2 className="text-xl font-bold">Enter Yesterday's Sales</h2>
+                </div>
+                <div className="p-4 space-y-4 overflow-y-auto">
+                    {dishes.map(dish => (
+                        <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
+                             <p className="font-semibold text-gray-800">{dish.name}</p>
+                             <div className="flex items-center space-x-3 mt-2">
+                                <div className="flex-1">
+                                    <label className="text-sm text-gray-500">Quantity Sold</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        value={salesData[dish.id].sold}
+                                        onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)}
+                                        className="w-full mt-1 p-2 border rounded-md"
+                                        placeholder="e.g., 25"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-sm text-gray-500">Quantity Wasted</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        value={salesData[dish.id].wasted}
+                                        onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)}
+                                        className="w-full mt-1 p-2 border rounded-md"
+                                        placeholder="e.g., 2"
+                                    />
+                                </div>
+                             </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="p-4 border-t flex justify-end space-x-3">
+                    <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+                    <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-md">
+                        {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                </div>
             </div>
         </div>
     );
 };
 
+const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
+    const [dishes, setDishes] = useState(restaurant.dishes || []);
+    const [newDishName, setNewDishName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
-const SettingsScreen = ({ user }) => {
+    const handleAddDish = () => {
+        if (newDishName.trim() === '') return;
+        const newDish = {
+            id: `dish${Date.now()}`,
+            name: newDishName.trim()
+        };
+        setDishes([...dishes, newDish]);
+        setNewDishName('');
+    };
+
+    const handleRemoveDish = (idToRemove) => {
+        setDishes(dishes.filter(dish => dish.id !== idToRemove));
+    };
+    
+    const handleSaveChanges = async () => {
+        setIsSaving(true);
+        const restaurantRef = doc(db, 'restaurants', user.uid);
+        try {
+            await updateDoc(restaurantRef, { dishes });
+            updateRestaurant({ dishes }); // Update local state in App
+            alert("Changes saved successfully!");
+        } catch(error) {
+            console.error("Error saving changes: ", error);
+            alert("Failed to save changes.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     return (
         <div>
             <Header title="Settings" />
@@ -235,6 +399,38 @@ const SettingsScreen = ({ user }) => {
                 <p className="font-semibold">{user.displayName}</p>
                 <p className="text-sm text-gray-500">{user.email}</p>
             </div>
+
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Manage Your Dishes</h3>
+                <div className="space-y-2 mb-4">
+                    {dishes.map(dish => (
+                         <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md">
+                            <span className="text-gray-700">{dish.name}</span>
+                            <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700">
+                                <TrashIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex space-x-2">
+                    <input 
+                        type="text"
+                        value={newDishName}
+                        onChange={(e) => setNewDishName(e.target.value)}
+                        placeholder="Add new dish name"
+                        className="flex-grow p-2 border rounded-md"
+                    />
+                    <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button>
+                </div>
+                 <button 
+                    onClick={handleSaveChanges} 
+                    disabled={isSaving}
+                    className="w-full mt-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"
+                >
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+            </div>
+            
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center">
                 <h3 className="font-bold text-lg mb-2">Your Restaurant QR Code</h3>
                 <div className="flex justify-center my-2">
@@ -255,11 +451,20 @@ const SettingsScreen = ({ user }) => {
     );
 };
 
+// --- Other Components (unchanged from before) ---
+const LiveOrdersScreen = ({ restaurant }) => {
+    const isPro = restaurant.subscription === 'pro';
+    if (!isPro) return <ProFeatureLock title="Live Order Hub" description="Upgrade to Pro to manage commission-free direct orders from your own QR code." />;
+    return <div><Header title="Live Orders" /><p className="text-center text-gray-500 mt-8">No live orders yet.</p></div>;
+};
+const ReportsScreen = ({ restaurant }) => {
+    const isPro = restaurant.subscription === 'pro';
+    if (!isPro) return <ProFeatureLock title="Advanced Reports" description="Upgrade to Pro to download sales data and get advanced menu engineering insights." />;
+    return <div><Header title="Reports & Insights" /><p className="text-center text-gray-500 mt-8">No reports available yet.</p></div>;
+};
 const Header = ({ title }) => (
     <h1 className="text-3xl font-bold text-gray-900 mb-4">{title}</h1>
 );
-
-
 const ProFeatureLock = ({ title, description }) => (
     <div>
         <Header title={title} />
@@ -273,7 +478,6 @@ const ProFeatureLock = ({ title, description }) => (
         </div>
     </div>
 );
-
 const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
@@ -281,19 +485,11 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
         { id: 'reports', label: 'Reports (Pro)', icon: BarChartIcon, pro: true },
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
-
     return (
         <div className="bg-white shadow-t sticky bottom-0 border-t">
             <div className="flex justify-around">
                 {navItems.map(item => (
-                    <button
-                        key={item.id}
-                        onClick={() => setActiveScreen(item.id)}
-                        className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition duration-300 ${
-                            activeScreen === item.id ? 'text-indigo-600' : 'text-gray-500 hover:text-indigo-600'
-                        }`}
-                        disabled={item.pro && !isPro}
-                    >
+                    <button key={item.id} onClick={() => setActiveScreen(item.id)} className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition duration-300 ${activeScreen === item.id ? 'text-indigo-600' : 'text-gray-500 hover:text-indigo-600'}`} disabled={item.pro && !isPro}>
                         <div className="relative">
                             {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />}
                             <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isPro ? 'text-gray-300' : ''}`} />
@@ -310,11 +506,11 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
 const Icon = ({ children }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>;
 const PlusIcon = () => <Icon><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
 const AlertTriangleIcon = () => <Icon><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></Icon>;
-const PencilIcon = () => <Icon><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></Icon>;
 const LogOutIcon = () => <Icon><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Icon>;
 const LockIcon = () => <Icon><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Icon>;
-const DownloadIcon = () => <Icon><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></Icon>;
+const TrashIcon = () => <Icon><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
 const LayoutDashboardIcon = () => <Icon><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></Icon>;
 const ShoppingCartIcon = () => <Icon><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></Icon>;
 const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>;
 const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
+
