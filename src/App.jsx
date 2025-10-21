@@ -159,57 +159,63 @@ const DashboardScreen = ({ restaurant, userId }) => {
 
     const calculatePredictions = useCallback(async () => {
         setLoading(true);
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
 
-        const salesQuery = query(
-            collection(db, 'daily_sales'),
-            where('userId', '==', userId),
-            where('date', '>=', sevenDaysAgoTimestamp)
-        );
+            const salesQuery = query(
+                collection(db, 'daily_sales'),
+                where('userId', '==', userId),
+                where('date', '>=', sevenDaysAgoTimestamp)
+            );
 
-        const querySnapshot = await getDocs(salesQuery);
-        const salesData = {};
-        restaurant.dishes.forEach(d => salesData[d.id] = []);
+            const querySnapshot = await getDocs(salesQuery);
+            const salesData = {};
+            restaurant.dishes.forEach(d => salesData[d.id] = []);
 
-        querySnapshot.forEach(doc => {
-            const data = doc.data();
-            if (salesData[data.dishId]) {
-                salesData[data.dishId].push(data);
-            }
-        });
+            querySnapshot.forEach(doc => {
+                const data = doc.data();
+                if (salesData[data.dishId]) {
+                    salesData[data.dishId].push(data);
+                }
+            });
 
-        const newPredictions = restaurant.dishes.map(dish => {
-            const dishSales = salesData[dish.id];
-            let prediction = 5; // Default prediction
-            let confidence = 20;
-            let totalSold = 0;
-            let totalWasted = 0;
+            const newPredictions = restaurant.dishes.map(dish => {
+                const dishSales = salesData[dish.id];
+                let prediction = 5; // Default prediction
+                let confidence = 20;
+                let totalSold = 0;
+                let totalWasted = 0;
 
-            if (dishSales.length > 0) {
-                const sum = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
-                prediction = Math.round(sum / dishSales.length);
-                confidence = Math.min(95, 20 + dishSales.length * 10);
-                totalSold = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
-                totalWasted = dishSales.reduce((acc, curr) => acc + curr.quantityWasted, 0);
-            }
+                if (dishSales.length > 0) {
+                    const sum = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
+                    prediction = Math.round(sum / dishSales.length);
+                    confidence = Math.min(95, 20 + dishSales.length * 10);
+                    totalSold = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
+                    totalWasted = dishSales.reduce((acc, curr) => acc + curr.quantityWasted, 0);
+                }
+                
+                const totalPrepared = totalSold + totalWasted;
+                const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
+                
+                return {
+                    id: dish.id,
+                    name: dish.name,
+                    prediction,
+                    confidence,
+                    wastage: wastagePercent > 15,
+                    wastagePercent
+                };
+            });
             
-            const totalPrepared = totalSold + totalWasted;
-            const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
-            
-            return {
-                id: dish.id,
-                name: dish.name,
-                prediction,
-                confidence,
-                wastage: wastagePercent > 15,
-                wastagePercent
-            };
-        });
-        
-        setPredictions(newPredictions);
-        setLoading(false);
+            setPredictions(newPredictions);
+        } catch (error) {
+            console.error("Failed to calculate predictions:", error);
+            // Optionally set an error state to show in the UI
+        } finally {
+            setLoading(false);
+        }
     }, [userId, restaurant.dishes]);
 
     useEffect(() => {
@@ -512,5 +518,5 @@ const TrashIcon = () => <Icon><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2
 const LayoutDashboardIcon = () => <Icon><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></Icon>;
 const ShoppingCartIcon = () => <Icon><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></Icon>;
 const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>;
-const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
+const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l-.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
 
