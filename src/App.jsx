@@ -236,20 +236,29 @@ const DashboardScreen = ({ restaurant, userId }) => {
             </div>
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
             {loading ? <p>Calculating predictions...</p> : (
-                <div className="space-y-3">
-                    {predictions.map(item => (
-                        <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
-                            <h3 className="font-bold text-lg">{item.name}</h3>
-                            <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
-                            {item.wastage && (
-                                <p className="text-yellow-600 font-semibold flex items-center mt-1">
-                                    <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%)
-                                </p>
-                            )}
-                            {/* Edit Button Placeholder */}
-                        </div>
-                    ))}
-                </div>
+                predictions.length > 0 ? (
+                    <div className="space-y-3">
+                        {predictions.map(item => (
+                            <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
+                                <h3 className="font-bold text-lg">{item.name}</h3>
+                                <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
+                                {item.wastage && (
+                                    <p className="text-yellow-600 font-semibold flex items-center mt-1">
+                                        <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%)
+                                    </p>
+                                )}
+                                {/* Edit Button Placeholder */}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-white p-4 rounded-lg shadow text-center">
+                        <p className="text-gray-600">No predictions to show.</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Please add some dishes in the Settings tab to get started.
+                        </p>
+                    </div>
+                )
             )}
             {isSalesModalOpen && (
                 <SalesEntryModal 
