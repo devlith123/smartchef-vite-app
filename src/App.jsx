@@ -18,6 +18,8 @@ import {
     query,
     where,
     getDocs,
+    onSnapshot,
+    addDoc,
     Timestamp 
 } from 'firebase/firestore';
 
@@ -73,6 +75,7 @@ export default function App() {
                     { id: 'dish2', name: 'Paneer Butter Masala' },
                     { id: 'dish3', name: 'Masala Dosa' },
                 ],
+                phone: '', // Added for WhatsApp
                 createdAt: Timestamp.now(),
             };
             await setDoc(restaurantRef, newRestaurant);
@@ -105,14 +108,14 @@ export default function App() {
 
     const ScreenComponent = {
         dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
-        orders: <LiveOrdersScreen restaurant={restaurant} />,
-        reports: <ReportsScreen restaurant={restaurant} />,
+        orders: <LiveOrdersScreen restaurant={restaurant} userId={user.uid} />,
+        reports: <ReportsScreen restaurant={restaurant} userId={user.uid} />,
         settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
     }[activeScreen];
 
     return (
         <div className="md:max-w-sm md:mx-auto bg-gray-100 min-h-screen font-sans flex flex-col">
-            <main className="flex-grow p-4">
+            <main className="flex-grow p-4 pb-20">
                 {ScreenComponent}
             </main>
             <BottomNavBar activeScreen={activeScreen} setActiveScreen={setActiveScreen} isPro={restaurant.subscription === 'pro'} />
@@ -129,6 +132,7 @@ const LoadingScreen = ({ message }) => (
 );
 
 const AuthScreen = () => {
+    // ... (unchanged)
     const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
@@ -158,6 +162,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
     const [loading, setLoading] = useState(true);
 
     const calculatePredictions = useCallback(async () => {
+        // ... (unchanged)
         setLoading(true);
         try {
             const sevenDaysAgo = new Date();
@@ -165,8 +170,6 @@ const DashboardScreen = ({ restaurant, userId }) => {
             const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
             const sevenDaysAgoMillis = sevenDaysAgoTimestamp.toMillis();
 
-            // *** FIX: Simplified the query to avoid needing a composite index ***
-            // We now fetch all sales for the user and filter by date in JavaScript.
             const salesQuery = query(
                 collection(db, 'daily_sales'),
                 where('userId', '==', userId)
@@ -174,12 +177,10 @@ const DashboardScreen = ({ restaurant, userId }) => {
 
             const querySnapshot = await getDocs(salesQuery);
             const salesData = {};
-            // Initialize sales data array for each dish
             (restaurant.dishes || []).forEach(d => salesData[d.id] = []);
 
             querySnapshot.forEach(doc => {
                 const data = doc.data();
-                // Perform the date filter in JavaScript
                 if (data.date && data.date.toMillis() >= sevenDaysAgoMillis) {
                     if (salesData[data.dishId]) {
                         salesData[data.dishId].push(data);
@@ -218,23 +219,42 @@ const DashboardScreen = ({ restaurant, userId }) => {
             setPredictions(newPredictions);
         } catch (error) {
             console.error("Failed to calculate predictions:", error);
-            // Set an error message to display in the UI if needed
         } finally {
             setLoading(false);
         }
     }, [userId, restaurant.dishes]);
 
     useEffect(() => {
-        // Ensure restaurant.dishes exists before calculating
         if (restaurant.dishes) {
             calculatePredictions();
         }
     }, [calculatePredictions, restaurant.dishes]);
 
+    const sendWhatsAppReport = () => {
+        if (!restaurant.phone) {
+            alert("Please add your WhatsApp phone number in the Settings tab first.");
+            return;
+        }
+
+        let reportText = `*SmartChef AI - Tomorrow's Forecast*\n\n`;
+        predictions.forEach(item => {
+            reportText += `*${item.name}*: ${item.prediction} plates\n`;
+            if (item.wastage) {
+                reportText += `_⚠️ High Wastage Alert (${item.wastagePercent}%)_\n`;
+            }
+        });
+        reportText += `\nReply with corrections if needed (e.g., Biryani 25, Paneer 15)`;
+
+        const encodedText = encodeURIComponent(reportText);
+        // Uses the WhatsApp click-to-chat API. Requires country code, e.g., 91 for India.
+        const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
+        window.open(whatsappUrl, '_blank');
+    };
+
     return (
         <div>
             <Header title={restaurant.name} />
-            <div className="bg-white p-4 rounded-lg shadow mb-4">
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
                 <button 
                     onClick={() => setSalesModalOpen(true)}
                     className="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center"
@@ -242,7 +262,15 @@ const DashboardScreen = ({ restaurant, userId }) => {
                     <PlusIcon className="h-6 w-6 mr-2" />
                     Enter Yesterday's Sales
                 </button>
+                <button 
+                    onClick={sendWhatsAppReport}
+                    className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center"
+                >
+                    <SendIcon className="h-6 w-6 mr-2" />
+                    Send Report via WhatsApp
+                </button>
             </div>
+            
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
             {loading ? <p>Calculating predictions...</p> : (
                 predictions.length > 0 ? (
@@ -256,7 +284,6 @@ const DashboardScreen = ({ restaurant, userId }) => {
                                         <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%)
                                     </p>
                                 )}
-                                {/* Edit Button Placeholder */}
                             </div>
                         ))}
                     </div>
@@ -282,6 +309,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
 };
 
 const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
+    // ... (unchanged)
     const [salesData, setSalesData] = useState(
         dishes.reduce((acc, dish) => {
             acc[dish.id] = { sold: '', wasted: '' };
@@ -385,12 +413,201 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
     );
 };
 
+const LiveOrdersScreen = ({ restaurant, userId }) => {
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const ordersQuery = query(
+            collection(db, 'live_orders'),
+            where('userId', '==', userId),
+            where('status', 'in', ['pending', 'accepted'])
+        );
+
+        const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
+            const liveOrders = [];
+            querySnapshot.forEach((doc) => {
+                liveOrders.push({ id: doc.id, ...doc.data() });
+            });
+            setOrders(liveOrders);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching live orders: ", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [userId]);
+
+    const addTestOrder = async () => {
+        try {
+            await addDoc(collection(db, 'live_orders'), {
+                userId: userId,
+                customerName: 'Test Customer',
+                items: [
+                    { name: 'Test Dish 1', quantity: 1, price: 100 },
+                    { name: 'Test Dish 2', quantity: 2, price: 50 }
+                ],
+                total: 200,
+                status: 'pending',
+                createdAt: Timestamp.now()
+            });
+        } catch (error) {
+            console.error("Error adding test order: ", error);
+        }
+    };
+    
+    const updateOrderStatus = async (orderId, newStatus) => {
+        const orderRef = doc(db, 'live_orders', orderId);
+        try {
+            await updateDoc(orderRef, { status: newStatus });
+        } catch (error) {
+            console.error("Error updating order status: ", error);
+        }
+    };
+
+    return (
+        <div>
+            <Header title="Live Orders" />
+            <button
+                onClick={addTestOrder}
+                className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"
+            >
+                Add Test Order (For Demo)
+            </button>
+            {loading ? <p>Loading live orders...</p> : (
+                orders.length === 0 ? (
+                    <p className="text-center text-gray-500 mt-8">No live orders yet.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {orders.map(order => (
+                            <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="font-bold text-lg">{order.customerName}</h3>
+                                    <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${
+                                        order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'
+                                    }`}>
+                                        {order.status}
+                                    </span>
+                                </div>
+                                <ul className="list-disc list-inside text-gray-700 mb-2">
+                                    {order.items.map(item => (
+                                        <li key={item.name}>{item.quantity}x {item.name}</li>
+                                    ))}
+                                </ul>
+                                <p className="font-bold text-right mb-3">Total: ₹{order.total}</p>
+                                <div className="flex space-x-2">
+                                    {order.status === 'pending' && (
+                                        <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button>
+                                    )}
+                                    {order.status === 'accepted' && (
+                                        <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-full bg-indigo-500 text-white py-2 rounded-md">Mark as Completed</button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )
+            )}
+        </div>
+    );
+};
+
+const ReportsScreen = ({ restaurant, userId }) => {
+    const [reportData, setReportData] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    const generateReport = useCallback(async () => {
+        setLoading(true);
+        try {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const thirtyDaysAgoTimestamp = Timestamp.fromDate(thirtyDaysAgo);
+
+            const salesQuery = query(
+                collection(db, 'daily_sales'),
+                where('userId', '==', userId),
+                where('date', '>=', thirtyDaysAgoTimestamp)
+            );
+
+            const querySnapshot = await getDocs(salesQuery);
+            
+            const aggregatedData = {};
+            (restaurant.dishes || []).forEach(dish => {
+                aggregatedData[dish.id] = {
+                    name: dish.name,
+                    totalSold: 0,
+                    totalWasted: 0
+                };
+            });
+
+            querySnapshot.forEach(doc => {
+                const data = doc.data();
+                if (aggregatedData[data.dishId]) {
+                    aggregatedData[data.dishId].totalSold += data.quantitySold;
+                    aggregatedData[data.dishId].totalWasted += data.quantityWasted;
+                }
+            });
+
+            const reportArray = Object.values(aggregatedData).map(dish => {
+                const totalPrepared = dish.totalSold + dish.totalWasted;
+                const wastagePercent = totalPrepared > 0 ? Math.round((dish.totalWasted / totalPrepared) * 100) : 0;
+                return { ...dish, wastagePercent };
+            });
+            
+            setReportData(reportArray);
+        } catch (error) {
+            console.error("Failed to generate report:", error);
+        } finally {
+            setLoading(false);
+        }
+    }, [userId, restaurant.dishes]);
+    
+    useEffect(() => {
+        if (restaurant.dishes) {
+            generateReport();
+        }
+    }, [generateReport, restaurant.dishes]);
+
+    return (
+        <div>
+            <Header title="Reports & Insights" />
+            <div className="bg-white p-4 rounded-lg shadow">
+                <h3 className="font-bold text-lg mb-2">Last 30 Days Summary</h3>
+                {loading ? <p>Generating report...</p> : (
+                    reportData.length > 0 ? (
+                        <div className="divide-y divide-gray-200">
+                            {reportData.map(dish => (
+                                <div key={dish.name} className="py-3">
+                                    <h4 className="font-semibold text-gray-800">{dish.name}</h4>
+                                    <div className="flex justify-between text-sm text-gray-600 mt-1">
+                                        <span>Total Sold: {dish.totalSold}</span>
+                                        <span>Total Wasted: {dish.totalWasted}</span>
+                                        <span className={dish.wastagePercent > 15 ? 'text-red-500 font-bold' : ''}>
+                                            Wastage: {dish.wastagePercent}%
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                         <p className="text-center text-gray-500 mt-4">No sales data found for the last 30 days.</p>
+                    )
+                )}
+            </div>
+        </div>
+    );
+};
+
+
 const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     const [dishes, setDishes] = useState(restaurant.dishes || []);
     const [newDishName, setNewDishName] = useState('');
+    const [phone, setPhone] = useState(restaurant.phone || '');
     const [isSaving, setIsSaving] = useState(false);
 
     const handleAddDish = () => {
+        // ... (unchanged)
         if (newDishName.trim() === '') return;
         const newDish = {
             id: `dish${Date.now()}`,
@@ -401,6 +618,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     };
 
     const handleRemoveDish = (idToRemove) => {
+        // ... (unchanged)
         setDishes(dishes.filter(dish => dish.id !== idToRemove));
     };
     
@@ -408,8 +626,9 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
         setIsSaving(true);
         const restaurantRef = doc(db, 'restaurants', user.uid);
         try {
-            await updateDoc(restaurantRef, { dishes });
-            updateRestaurant({ dishes }); // Update local state in App
+            const updatedData = { dishes, phone };
+            await updateDoc(restaurantRef, updatedData);
+            updateRestaurant(updatedData); // Update local state in App
             alert("Changes saved successfully!");
         } catch(error) {
             console.error("Error saving changes: ", error);
@@ -427,6 +646,18 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
                 <p className="text-sm text-gray-500">{user.email}</p>
             </div>
 
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">WhatsApp Integration</h3>
+                <p className="text-sm text-gray-600 mb-2">Enter your WhatsApp number with country code (e.g., 91xxxxxxxxxx for India).</p>
+                <input 
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g., 919876543210"
+                    className="w-full p-2 border rounded-md"
+                />
+            </div>
+            
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Manage Your Dishes</h3>
                 <div className="space-y-2 mb-4">
@@ -449,14 +680,15 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
                     />
                     <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button>
                 </div>
-                 <button 
-                    onClick={handleSaveChanges} 
-                    disabled={isSaving}
-                    className="w-full mt-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"
-                >
-                    {isSaving ? 'Saving...' : 'Save Changes'}
-                </button>
             </div>
+
+            <button 
+                onClick={handleSaveChanges} 
+                disabled={isSaving}
+                className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"
+            >
+                {isSaving ? 'Saving...' : 'Save All Changes'}
+            </button>
             
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center">
                 <h3 className="font-bold text-lg mb-2">Your Restaurant QR Code</h3>
@@ -479,16 +711,6 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
 };
 
 // --- Other Components (unchanged from before) ---
-const LiveOrdersScreen = ({ restaurant }) => {
-    const isPro = restaurant.subscription === 'pro';
-    if (!isPro) return <ProFeatureLock title="Live Order Hub" description="Upgrade to Pro to manage commission-free direct orders from your own QR code." />;
-    return <div><Header title="Live Orders" /><p className="text-center text-gray-500 mt-8">No live orders yet.</p></div>;
-};
-const ReportsScreen = ({ restaurant }) => {
-    const isPro = restaurant.subscription === 'pro';
-    if (!isPro) return <ProFeatureLock title="Advanced Reports" description="Upgrade to Pro to download sales data and get advanced menu engineering insights." />;
-    return <div><Header title="Reports & Insights" /><p className="text-center text-gray-500 mt-8">No reports available yet.</p></div>;
-};
 const Header = ({ title }) => (
     <h1 className="text-3xl font-bold text-gray-900 mb-4">{title}</h1>
 );
@@ -508,8 +730,8 @@ const ProFeatureLock = ({ title, description }) => (
 const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-        { id: 'orders', label: 'Orders (Pro)', icon: ShoppingCartIcon, pro: true },
-        { id: 'reports', label: 'Reports (Pro)', icon: BarChartIcon, pro: true },
+        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon, pro: false }, // Unlocked
+        { id: 'reports', label: 'Reports', icon: BarChartIcon, pro: false }, // Unlocked
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
     return (
@@ -540,4 +762,5 @@ const LayoutDashboardIcon = () => <Icon><rect width="7" height="9" x="3" y="3" r
 const ShoppingCartIcon = () => <Icon><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></Icon>;
 const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>;
 const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l-.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
+const SendIcon = () => <Icon><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
 
