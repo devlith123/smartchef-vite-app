@@ -163,32 +163,38 @@ const DashboardScreen = ({ restaurant, userId }) => {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+            const sevenDaysAgoMillis = sevenDaysAgoTimestamp.toMillis();
 
+            // *** FIX: Simplified the query to avoid needing a composite index ***
+            // We now fetch all sales for the user and filter by date in JavaScript.
             const salesQuery = query(
                 collection(db, 'daily_sales'),
-                where('userId', '==', userId),
-                where('date', '>=', sevenDaysAgoTimestamp)
+                where('userId', '==', userId)
             );
 
             const querySnapshot = await getDocs(salesQuery);
             const salesData = {};
-            restaurant.dishes.forEach(d => salesData[d.id] = []);
+            // Initialize sales data array for each dish
+            (restaurant.dishes || []).forEach(d => salesData[d.id] = []);
 
             querySnapshot.forEach(doc => {
                 const data = doc.data();
-                if (salesData[data.dishId]) {
-                    salesData[data.dishId].push(data);
+                // Perform the date filter in JavaScript
+                if (data.date && data.date.toMillis() >= sevenDaysAgoMillis) {
+                    if (salesData[data.dishId]) {
+                        salesData[data.dishId].push(data);
+                    }
                 }
             });
 
-            const newPredictions = restaurant.dishes.map(dish => {
+            const newPredictions = (restaurant.dishes || []).map(dish => {
                 const dishSales = salesData[dish.id];
                 let prediction = 5; // Default prediction
                 let confidence = 20;
                 let totalSold = 0;
                 let totalWasted = 0;
 
-                if (dishSales.length > 0) {
+                if (dishSales && dishSales.length > 0) {
                     const sum = dishSales.reduce((acc, curr) => acc + curr.quantitySold, 0);
                     prediction = Math.round(sum / dishSales.length);
                     confidence = Math.min(95, 20 + dishSales.length * 10);
@@ -212,15 +218,18 @@ const DashboardScreen = ({ restaurant, userId }) => {
             setPredictions(newPredictions);
         } catch (error) {
             console.error("Failed to calculate predictions:", error);
-            // Optionally set an error state to show in the UI
+            // Set an error message to display in the UI if needed
         } finally {
             setLoading(false);
         }
     }, [userId, restaurant.dishes]);
 
     useEffect(() => {
-        calculatePredictions();
-    }, [calculatePredictions]);
+        // Ensure restaurant.dishes exists before calculating
+        if (restaurant.dishes) {
+            calculatePredictions();
+        }
+    }, [calculatePredictions, restaurant.dishes]);
 
     return (
         <div>
@@ -262,7 +271,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
             )}
             {isSalesModalOpen && (
                 <SalesEntryModal 
-                    dishes={restaurant.dishes} 
+                    dishes={restaurant.dishes || []} 
                     userId={userId}
                     onClose={() => setSalesModalOpen(false)}
                     onSave={calculatePredictions}
@@ -332,7 +341,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                     <h2 className="text-xl font-bold">Enter Yesterday's Sales</h2>
                 </div>
                 <div className="p-4 space-y-4 overflow-y-auto">
-                    {dishes.map(dish => (
+                    {(dishes || []).map(dish => (
                         <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
                              <p className="font-semibold text-gray-800">{dish.name}</p>
                              <div className="flex items-center space-x-3 mt-2">
@@ -341,7 +350,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                                     <input 
                                         type="number"
                                         min="0"
-                                        value={salesData[dish.id].sold}
+                                        value={salesData[dish.id]?.sold || ''}
                                         onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)}
                                         className="w-full mt-1 p-2 border rounded-md"
                                         placeholder="e.g., 25"
@@ -352,7 +361,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                                     <input 
                                         type="number"
                                         min="0"
-                                        value={salesData[dish.id].wasted}
+                                        value={salesData[dish.id]?.wasted || ''}
                                         onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)}
                                         className="w-full mt-1 p-2 border rounded-md"
                                         placeholder="e.g., 2"
@@ -361,10 +370,13 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                              </div>
                         </div>
                     ))}
+                    {(!dishes || dishes.length === 0) && (
+                        <p className="text-gray-500 text-center">Please add some dishes in the Settings tab first.</p>
+                    )}
                 </div>
                 <div className="p-4 border-t flex justify-end space-x-3">
                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-                    <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-md">
+                    <button onClick={handleSave} disabled={isSaving || !dishes || dishes.length === 0} className="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50">
                         {isSaving ? 'Saving...' : 'Save'}
                     </button>
                 </div>
@@ -418,7 +430,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Manage Your Dishes</h3>
                 <div className="space-y-2 mb-4">
-                    {dishes.map(dish => (
+                    {(dishes || []).map(dish => (
                          <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md">
                             <span className="text-gray-700">{dish.name}</span>
                             <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700">
