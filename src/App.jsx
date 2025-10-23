@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { 
-    getAuth, 
+import {
+    getAuth,
     GoogleAuthProvider,
     signInWithPopup,
     onAuthStateChanged,
     signOut
 } from 'firebase/auth';
-import { 
-    getFirestore, 
-    doc, 
-    setDoc, 
+import {
+    getFirestore,
+    doc,
+    setDoc,
     getDoc,
     updateDoc,
     collection,
@@ -20,11 +20,11 @@ import {
     getDocs,
     onSnapshot,
     addDoc,
-    Timestamp 
+    Timestamp,
+    orderBy // Added orderBy for customer list
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// IMPORTANT: Make sure this is replaced with your own Firebase project configuration.
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -66,6 +66,7 @@ export default function App() {
         if (docSnap.exists()) {
             setRestaurant(docSnap.data());
         } else {
+            // Create new restaurant profile if it doesn't exist
             const newRestaurant = {
                 owner: currentUser.displayName,
                 name: `${currentUser.displayName}'s Place`,
@@ -75,7 +76,7 @@ export default function App() {
                     { id: 'dish2', name: 'Paneer Butter Masala' },
                     { id: 'dish3', name: 'Masala Dosa' },
                 ],
-                phone: '', // Added for WhatsApp
+                phone: '', // For Restaurant's WhatsApp
                 createdAt: Timestamp.now(),
             };
             await setDoc(restaurantRef, newRestaurant);
@@ -89,9 +90,9 @@ export default function App() {
         const unsubscribe = onAuthStateChanged(auth, fetchRestaurantData);
         return () => unsubscribe();
     }, [fetchRestaurantData]);
-    
+
     const updateRestaurant = (newData) => {
-        setRestaurant(prev => ({...prev, ...newData}));
+        setRestaurant(prev => ({ ...prev, ...newData }));
     };
 
     if (loading) {
@@ -106,10 +107,11 @@ export default function App() {
         return <LoadingScreen message="Loading Restaurant..." />;
     }
 
+    // Map screen IDs to components
     const ScreenComponent = {
         dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
         orders: <LiveOrdersScreen restaurant={restaurant} userId={user.uid} />,
-        reports: <ReportsScreen restaurant={restaurant} userId={user.uid} />,
+        customers: <CustomersScreen restaurant={restaurant} userId={user.uid} />, // New Customer Screen
         settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
     }[activeScreen];
 
@@ -118,6 +120,7 @@ export default function App() {
             <main className="flex-grow p-4 pb-20">
                 {ScreenComponent}
             </main>
+            {/* Pass isPro flag to BottomNavBar */}
             <BottomNavBar activeScreen={activeScreen} setActiveScreen={setActiveScreen} isPro={restaurant.subscription === 'pro'} />
         </div>
     );
@@ -126,7 +129,8 @@ export default function App() {
 // --- Screens & Components ---
 
 const LoadingScreen = ({ message }) => (
-    <div className="flex items-center justify-center h-screen bg-gray-100">
+    // ... (unchanged)
+     <div className="flex items-center justify-center h-screen bg-gray-100">
         <div className="text-xl font-semibold text-gray-700">{message}</div>
     </div>
 );
@@ -157,12 +161,12 @@ const AuthScreen = () => {
 };
 
 const DashboardScreen = ({ restaurant, userId }) => {
+    // ... (logic mostly unchanged)
     const [isSalesModalOpen, setSalesModalOpen] = useState(false);
     const [predictions, setPredictions] = useState([]);
     const [loading, setLoading] = useState(true);
 
     const calculatePredictions = useCallback(async () => {
-        // ... (unchanged)
         setLoading(true);
         try {
             const sevenDaysAgo = new Date();
@@ -190,7 +194,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
 
             const newPredictions = (restaurant.dishes || []).map(dish => {
                 const dishSales = salesData[dish.id];
-                let prediction = 5; // Default prediction
+                let prediction = 5;
                 let confidence = 20;
                 let totalSold = 0;
                 let totalWasted = 0;
@@ -227,10 +231,14 @@ const DashboardScreen = ({ restaurant, userId }) => {
     useEffect(() => {
         if (restaurant.dishes) {
             calculatePredictions();
+        } else {
+             setLoading(false); // Ensure loading stops if no dishes
+             setPredictions([]);
         }
     }, [calculatePredictions, restaurant.dishes]);
 
     const sendWhatsAppReport = () => {
+        // ... (unchanged)
         if (!restaurant.phone) {
             alert("Please add your WhatsApp phone number in the Settings tab first.");
             return;
@@ -246,7 +254,6 @@ const DashboardScreen = ({ restaurant, userId }) => {
         reportText += `\nReply with corrections if needed (e.g., Biryani 25, Paneer 15)`;
 
         const encodedText = encodeURIComponent(reportText);
-        // Uses the WhatsApp click-to-chat API. Requires country code, e.g., 91 for India.
         const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
         window.open(whatsappUrl, '_blank');
     };
@@ -264,7 +271,8 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 </button>
                 <button 
                     onClick={sendWhatsAppReport}
-                    className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center"
+                    disabled={loading || predictions.length === 0}
+                    className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <SendIcon className="h-6 w-6 mr-2" />
                     Send Report via WhatsApp
@@ -291,7 +299,9 @@ const DashboardScreen = ({ restaurant, userId }) => {
                     <div className="bg-white p-4 rounded-lg shadow text-center">
                         <p className="text-gray-600">No predictions to show.</p>
                         <p className="text-sm text-gray-500 mt-1">
-                            Please add some dishes in the Settings tab to get started.
+                            {!restaurant.dishes || restaurant.dishes.length === 0 
+                                ? "Please add some dishes in the Settings tab to get started." 
+                                : "Enter yesterday's sales data to generate the first forecast."}
                         </p>
                     </div>
                 )
@@ -414,6 +424,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
 };
 
 const LiveOrdersScreen = ({ restaurant, userId }) => {
+    // ... (logic for fetching and displaying orders unchanged)
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -429,6 +440,12 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
             querySnapshot.forEach((doc) => {
                 liveOrders.push({ id: doc.id, ...doc.data() });
             });
+             // Sort orders: pending first, then by creation time
+            liveOrders.sort((a, b) => {
+                if (a.status === 'pending' && b.status !== 'pending') return -1;
+                if (a.status !== 'pending' && b.status === 'pending') return 1;
+                return (a.createdAt?.toDate() || 0) - (b.createdAt?.toDate() || 0); // ascending by time
+            });
             setOrders(liveOrders);
             setLoading(false);
         }, (error) => {
@@ -439,25 +456,43 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
         return () => unsubscribe();
     }, [userId]);
 
+    // ** Simulate Customer Capture on Test Order **
     const addTestOrder = async () => {
+        const testCustomer = {
+            name: 'Test Customer ' + Math.floor(Math.random() * 100),
+            phone: '919876500000' // Example phone, replace 91 with actual country code
+        };
         try {
-            await addDoc(collection(db, 'live_orders'), {
+            // Add the order
+            const orderRef = await addDoc(collection(db, 'live_orders'), {
                 userId: userId,
-                customerName: 'Test Customer',
+                customerName: testCustomer.name,
+                customerPhone: testCustomer.phone, // Store phone with order
                 items: [
-                    { name: 'Test Dish 1', quantity: 1, price: 100 },
-                    { name: 'Test Dish 2', quantity: 2, price: 50 }
+                    { name: restaurant.dishes[0]?.name || 'Test Dish 1', quantity: 1, price: 100 },
+                    { name: restaurant.dishes[1]?.name || 'Test Dish 2', quantity: 2, price: 50 }
                 ],
                 total: 200,
                 status: 'pending',
                 createdAt: Timestamp.now()
             });
+
+            // Add/update customer in 'customers' collection (using phone as ID for simplicity)
+            const customerRef = doc(db, 'customers', `${userId}_${testCustomer.phone}`); // Composite key
+            await setDoc(customerRef, {
+                userId: userId,
+                name: testCustomer.name,
+                phone: testCustomer.phone,
+                lastOrderAt: Timestamp.now()
+            }, { merge: true }); // Use merge to update if customer exists
+
         } catch (error) {
-            console.error("Error adding test order: ", error);
+            console.error("Error adding test order or customer: ", error);
         }
     };
     
     const updateOrderStatus = async (orderId, newStatus) => {
+        // ... (unchanged)
         const orderRef = doc(db, 'live_orders', orderId);
         try {
             await updateDoc(orderRef, { status: newStatus });
@@ -473,7 +508,7 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                 onClick={addTestOrder}
                 className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"
             >
-                Add Test Order (For Demo)
+                Add Test Order (Captures Customer)
             </button>
             {loading ? <p>Loading live orders...</p> : (
                 orders.length === 0 ? (
@@ -483,7 +518,10 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                         {orders.map(order => (
                             <div key={order.id} className="bg-white p-4 rounded-lg shadow">
                                 <div className="flex justify-between items-center mb-2">
-                                    <h3 className="font-bold text-lg">{order.customerName}</h3>
+                                    <div>
+                                        <h3 className="font-bold text-lg">{order.customerName}</h3>
+                                        {order.customerPhone && <p className="text-sm text-gray-500">{order.customerPhone}</p>}
+                                    </div>
                                     <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${
                                         order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'
                                     }`}>
@@ -491,8 +529,8 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                                     </span>
                                 </div>
                                 <ul className="list-disc list-inside text-gray-700 mb-2">
-                                    {order.items.map(item => (
-                                        <li key={item.name}>{item.quantity}x {item.name}</li>
+                                    {(order.items || []).map((item, index) => (
+                                        <li key={`${item.name}-${index}`}>{item.quantity}x {item.name}</li>
                                     ))}
                                 </ul>
                                 <p className="font-bold text-right mb-3">Total: ₹{order.total}</p>
@@ -501,7 +539,10 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                                         <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button>
                                     )}
                                     {order.status === 'accepted' && (
-                                        <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-full bg-indigo-500 text-white py-2 rounded-md">Mark as Completed</button>
+                                        <>
+                                        <button className="w-1/2 bg-blue-500 text-white py-2 rounded-md">Book Delivery (WIP)</button>
+                                        <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-1/2 bg-indigo-500 text-white py-2 rounded-md">Mark Completed</button>
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -513,87 +554,110 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
     );
 };
 
-const ReportsScreen = ({ restaurant, userId }) => {
-    const [reportData, setReportData] = useState([]);
+// ** New Customers Screen **
+const CustomersScreen = ({ restaurant, userId }) => {
+    const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [message, setMessage] = useState('');
+    const [sending, setSending] = useState(false);
 
-    const generateReport = useCallback(async () => {
-        setLoading(true);
-        try {
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            const thirtyDaysAgoTimestamp = Timestamp.fromDate(thirtyDaysAgo);
-
-            const salesQuery = query(
-                collection(db, 'daily_sales'),
-                where('userId', '==', userId),
-                where('date', '>=', thirtyDaysAgoTimestamp)
-            );
-
-            const querySnapshot = await getDocs(salesQuery);
-            
-            const aggregatedData = {};
-            (restaurant.dishes || []).forEach(dish => {
-                aggregatedData[dish.id] = {
-                    name: dish.name,
-                    totalSold: 0,
-                    totalWasted: 0
-                };
-            });
-
-            querySnapshot.forEach(doc => {
-                const data = doc.data();
-                if (aggregatedData[data.dishId]) {
-                    aggregatedData[data.dishId].totalSold += data.quantitySold;
-                    aggregatedData[data.dishId].totalWasted += data.quantityWasted;
-                }
-            });
-
-            const reportArray = Object.values(aggregatedData).map(dish => {
-                const totalPrepared = dish.totalSold + dish.totalWasted;
-                const wastagePercent = totalPrepared > 0 ? Math.round((dish.totalWasted / totalPrepared) * 100) : 0;
-                return { ...dish, wastagePercent };
-            });
-            
-            setReportData(reportArray);
-        } catch (error) {
-            console.error("Failed to generate report:", error);
-        } finally {
-            setLoading(false);
-        }
-    }, [userId, restaurant.dishes]);
-    
     useEffect(() => {
-        if (restaurant.dishes) {
-            generateReport();
+        const customersQuery = query(
+            collection(db, 'customers'),
+            where('userId', '==', userId),
+            orderBy('lastOrderAt', 'desc') // Show most recent customers first
+        );
+
+        const unsubscribe = onSnapshot(customersQuery, (querySnapshot) => {
+            const customerList = [];
+            querySnapshot.forEach((doc) => {
+                customerList.push({ id: doc.id, ...doc.data() });
+            });
+            setCustomers(customerList);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching customers: ", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [userId]);
+
+    const sendBulkWhatsApp = () => {
+        if (!message.trim()) {
+            alert("Please enter a message to send.");
+            return;
         }
-    }, [generateReport, restaurant.dishes]);
+        if (customers.length === 0) {
+            alert("No customers found to send messages to.");
+            return;
+        }
+        
+        setSending(true);
+        // Basic simulation: Open WhatsApp for each customer one by one.
+        // Real bulk sending requires Twilio API or similar.
+        customers.forEach((customer, index) => {
+            setTimeout(() => {
+                 if (customer.phone) {
+                    const encodedText = encodeURIComponent(message);
+                    const whatsappUrl = `https://wa.me/${customer.phone}?text=${encodedText}`;
+                    window.open(whatsappUrl, `_blank_${index}`);
+                 }
+                 if (index === customers.length - 1) {
+                     setSending(false);
+                 }
+            }, index * 1000); // Stagger opening windows slightly
+        });
+        setMessage(''); // Clear message after sending
+    };
 
     return (
         <div>
-            <Header title="Reports & Insights" />
-            <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="font-bold text-lg mb-2">Last 30 Days Summary</h3>
-                {loading ? <p>Generating report...</p> : (
-                    reportData.length > 0 ? (
-                        <div className="divide-y divide-gray-200">
-                            {reportData.map(dish => (
-                                <div key={dish.name} className="py-3">
-                                    <h4 className="font-semibold text-gray-800">{dish.name}</h4>
-                                    <div className="flex justify-between text-sm text-gray-600 mt-1">
-                                        <span>Total Sold: {dish.totalSold}</span>
-                                        <span>Total Wasted: {dish.totalWasted}</span>
-                                        <span className={dish.wastagePercent > 15 ? 'text-red-500 font-bold' : ''}>
-                                            Wastage: {dish.wastagePercent}%
-                                        </span>
-                                    </div>
+            <Header title="Customers & Marketing" />
+
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Send WhatsApp Offer</h3>
+                 <textarea 
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Type your offer message here..."
+                    className="w-full p-2 border rounded-md mb-2 h-24"
+                />
+                 <button 
+                    onClick={sendBulkWhatsApp} 
+                    disabled={sending || loading || customers.length === 0}
+                    className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <SendIcon className="h-6 w-6 mr-2" />
+                    {sending ? 'Sending...' : `Send to ${customers.length} Customers`}
+                </button>
+                <p className="text-xs text-gray-500 mt-2 text-center">Note: This will open WhatsApp for each customer individually.</p>
+            </div>
+
+             <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Your Customers</h3>
+                {loading ? <p>Loading customers...</p> : (
+                    customers.length === 0 ? (
+                        <p className="text-center text-gray-500 mt-4">No customers captured yet. They will appear here after placing orders.</p>
+                    ) : (
+                        <div className="divide-y divide-gray-200 max-h-60 overflow-y-auto">
+                            {customers.map(cust => (
+                                <div key={cust.id} className="py-2">
+                                    <p className="font-semibold">{cust.name}</p>
+                                    <p className="text-sm text-gray-500">{cust.phone}</p>
+                                    <p className="text-xs text-gray-400">Last Order: {cust.lastOrderAt ? formatDate(cust.lastOrderAt) : 'N/A'}</p>
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                         <p className="text-center text-gray-500 mt-4">No sales data found for the last 30 days.</p>
                     )
                 )}
+            </div>
+
+            <div className="bg-white p-4 rounded-lg shadow text-center opacity-70">
+                 <h3 className="font-bold text-lg mb-2">AI Personalized Messaging (Coming Soon)</h3>
+                 <p className="text-sm text-gray-600">
+                    Future Pro Feature: Let AI send smart messages based on weather (e.g., "Rainy day? Order hot Biryani!"), festivals ("Special Diwali offer!"), or even check in on regular single customers ("Hope you're having a good meal tonight!").
+                 </p>
             </div>
         </div>
     );
@@ -601,13 +665,13 @@ const ReportsScreen = ({ restaurant, userId }) => {
 
 
 const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
+    // ... (logic for dishes unchanged)
     const [dishes, setDishes] = useState(restaurant.dishes || []);
     const [newDishName, setNewDishName] = useState('');
     const [phone, setPhone] = useState(restaurant.phone || '');
     const [isSaving, setIsSaving] = useState(false);
 
     const handleAddDish = () => {
-        // ... (unchanged)
         if (newDishName.trim() === '') return;
         const newDish = {
             id: `dish${Date.now()}`,
@@ -618,11 +682,11 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     };
 
     const handleRemoveDish = (idToRemove) => {
-        // ... (unchanged)
         setDishes(dishes.filter(dish => dish.id !== idToRemove));
     };
     
     const handleSaveChanges = async () => {
+        // ... (saves dishes AND phone now)
         setIsSaving(true);
         const restaurantRef = doc(db, 'restaurants', user.uid);
         try {
@@ -638,6 +702,15 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
         }
     };
 
+    // ** Share QR Code via WhatsApp **
+    const shareQrViaWhatsApp = () => {
+         const menuUrl = `https://smartchef-ai.netlify.app/menu/${user.uid}`; // Use your actual deployed URL
+         const message = `Check out our menu and order directly here: ${menuUrl}`;
+         const encodedText = encodeURIComponent(message);
+         const whatsappUrl = `https://wa.me/?text=${encodedText}`; // wa.me link without phone number opens share sheet
+         window.open(whatsappUrl, '_blank');
+    }
+
     return (
         <div>
             <Header title="Settings" />
@@ -648,7 +721,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
 
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">WhatsApp Integration</h3>
-                <p className="text-sm text-gray-600 mb-2">Enter your WhatsApp number with country code (e.g., 91xxxxxxxxxx for India).</p>
+                <p className="text-sm text-gray-600 mb-2">Enter your WhatsApp number with country code (e.g., 91xxxxxxxxxx for India). Used for sending reports.</p>
                 <input 
                     type="tel"
                     value={phone}
@@ -660,7 +733,8 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
             
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Manage Your Dishes</h3>
-                <div className="space-y-2 mb-4">
+                {/* ... dish management UI ... */}
+                 <div className="space-y-2 mb-4">
                     {(dishes || []).map(dish => (
                          <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md">
                             <span className="text-gray-700">{dish.name}</span>
@@ -694,10 +768,18 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
                 <h3 className="font-bold text-lg mb-2">Your Restaurant QR Code</h3>
                 <div className="flex justify-center my-2">
                     <div className="p-2 border rounded-md">
-                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://smartchef-ai.netlify.app/menu/${user.uid}`} alt="Restaurant QR Code" />
+                        {/* Ensure your deployment URL is correct here */}
+                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="Restaurant QR Code" />
                     </div>
                 </div>
-                <p className="text-xs text-gray-500">Customers can scan this to order directly!</p>
+                <p className="text-xs text-gray-500 mb-3">Customers scan this to order directly!</p>
+                 <button 
+                    onClick={shareQrViaWhatsApp}
+                    className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"
+                >
+                    <Share2Icon className="h-5 w-5 mr-2" />
+                    Share QR Link via WhatsApp
+                </button>
             </div>
             <button
                 onClick={() => signOut(auth)}
@@ -710,12 +792,14 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     );
 };
 
-// --- Other Components (unchanged from before) ---
+// --- Other Components ---
 const Header = ({ title }) => (
+    // ... (unchanged)
     <h1 className="text-3xl font-bold text-gray-900 mb-4">{title}</h1>
 );
 const ProFeatureLock = ({ title, description }) => (
-    <div>
+    // ... (unchanged)
+     <div>
         <Header title={title} />
         <div className="bg-white p-6 rounded-lg shadow text-center">
             <LockIcon className="h-12 w-12 text-indigo-500 mx-auto mb-4" />
@@ -727,18 +811,26 @@ const ProFeatureLock = ({ title, description }) => (
         </div>
     </div>
 );
+// ** Updated BottomNavBar **
 const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon, pro: false }, // Unlocked
-        { id: 'reports', label: 'Reports', icon: BarChartIcon, pro: false }, // Unlocked
+        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon }, // Unlocked
+        { id: 'customers', label: 'Customers', icon: UsersIcon }, // New Customers tab
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
     return (
-        <div className="bg-white shadow-t sticky bottom-0 border-t">
+        <div className="bg-white shadow-t sticky bottom-0 border-t z-10"> {/* Added z-index */}
             <div className="flex justify-around">
                 {navItems.map(item => (
-                    <button key={item.id} onClick={() => setActiveScreen(item.id)} className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition duration-300 ${activeScreen === item.id ? 'text-indigo-600' : 'text-gray-500 hover:text-indigo-600'}`} disabled={item.pro && !isPro}>
+                    <button 
+                        key={item.id} 
+                        onClick={() => setActiveScreen(item.id)} 
+                        className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition duration-300 ${
+                            activeScreen === item.id ? 'text-indigo-600' : 'text-gray-500 hover:text-indigo-600'
+                        }`} 
+                        disabled={item.pro && !isPro}
+                    >
                         <div className="relative">
                             {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />}
                             <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isPro ? 'text-gray-300' : ''}`} />
@@ -751,7 +843,7 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
     );
 };
 
-// --- Icon Components (Lucide React) ---
+// --- Icon Components (Lucide React - Added UsersIcon, SendIcon, Share2Icon) ---
 const Icon = ({ children }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>;
 const PlusIcon = () => <Icon><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
 const AlertTriangleIcon = () => <Icon><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></Icon>;
@@ -760,7 +852,9 @@ const LockIcon = () => <Icon><rect width="18" height="11" x="3" y="11" rx="2" ry
 const TrashIcon = () => <Icon><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
 const LayoutDashboardIcon = () => <Icon><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></Icon>;
 const ShoppingCartIcon = () => <Icon><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></Icon>;
-const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>;
+const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>; // Kept for potential future use
 const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l-.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
 const SendIcon = () => <Icon><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
+const Share2Icon = () => <Icon><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></Icon>;
+const UsersIcon = () => <Icon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
 
