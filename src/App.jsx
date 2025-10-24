@@ -21,11 +21,10 @@ import {
     onSnapshot,
     addDoc,
     Timestamp,
-    orderBy // Added orderBy for customer list
+    orderBy
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// Ensure this is your actual configuration
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -43,9 +42,9 @@ const db = getFirestore(app);
 
 // --- Helper Functions ---
 const formatDate = (date) => {
+    // ... (unchanged)
     const d = date.toDate();
-    // Use ISO format YYYY-MM-DD for consistent sorting and IDs
-    return d.toISOString().split('T')[0]; 
+    return d.toISOString().split('T')[0];
 };
 
 // --- Main App Component ---
@@ -53,15 +52,14 @@ export default function App() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [restaurant, setRestaurant] = useState(null);
-    const [activeScreen, setActiveScreen] = useState('dashboard');
+    const [activeScreen, setActiveScreen] = useState('dashboard'); // Start on Dashboard
 
-    // ** Strengthened Data Fetching Logic **
     const fetchRestaurantData = useCallback(async (currentUser) => {
-        setLoading(true); // Ensure loading state is active during fetch/clear
+        setLoading(true);
         if (!currentUser) {
             setUser(null);
-            setRestaurant(null); // Clear restaurant data on logout
-            setActiveScreen('dashboard'); // Reset to dashboard on logout
+            setRestaurant(null);
+            setActiveScreen('dashboard');
             setLoading(false);
             return;
         }
@@ -70,7 +68,15 @@ export default function App() {
             const restaurantRef = doc(db, 'restaurants', currentUser.uid);
             const docSnap = await getDoc(restaurantRef);
             if (docSnap.exists()) {
-                setRestaurant(docSnap.data());
+                // Ensure essential fields exist
+                 const data = docSnap.data();
+                 setRestaurant({
+                    ...data,
+                    cuisineType: data.cuisineType || '', // Add default empty string
+                    targetAudience: data.targetAudience || '', // Add default empty string
+                    dishes: data.dishes || [],
+                    phone: data.phone || ''
+                 });
             } else {
                 const newRestaurant = {
                     owner: currentUser.displayName,
@@ -82,27 +88,28 @@ export default function App() {
                         { id: 'dish3', name: 'Masala Dosa' },
                     ],
                     phone: '',
+                    cuisineType: '', // Added field
+                    targetAudience: '', // Added field
                     createdAt: Timestamp.now(),
                 };
                 await setDoc(restaurantRef, newRestaurant);
                 setRestaurant(newRestaurant);
             }
-            setUser(currentUser); // Set user only after data fetch/creation succeeds
+            setUser(currentUser);
         } catch (error) {
             console.error("Error fetching restaurant data:", error);
-            setUser(null); // Clear user if data fetch fails
+            setUser(null);
             setRestaurant(null);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    useEffect(() => {
+     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-             // Reset state before fetching new user data to prevent flicker
             setUser(null);
             setRestaurant(null);
-            setLoading(true); 
+            setLoading(true);
             fetchRestaurantData(firebaseUser);
         });
         return () => unsubscribe();
@@ -120,14 +127,15 @@ export default function App() {
         return <AuthScreen />;
     }
 
-    // Add explicit check for restaurant data before rendering main screens
     if (!restaurant) {
+        // Handle case where restaurant data might still be loading or failed
         return <LoadingScreen message="Initializing Restaurant..." />;
     }
 
-    // Pass necessary props explicitly
+    // Map screen IDs to components
     const ScreenComponent = {
         dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
+        marketing: <MarketingScreen restaurant={restaurant} userId={user.uid}/>, // New Marketing Screen
         orders: <LiveOrdersScreen restaurant={restaurant} userId={user.uid} />,
         customers: <CustomersScreen restaurant={restaurant} userId={user.uid} />,
         settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
@@ -154,7 +162,7 @@ const LoadingScreen = ({ message }) => (
 
 const AuthScreen = () => {
     // ... (unchanged)
-    const signInWithGoogle = async () => {
+     const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
             await signInWithPopup(auth, provider);
@@ -178,7 +186,7 @@ const AuthScreen = () => {
 };
 
 const DashboardScreen = ({ restaurant, userId }) => {
-    // Ensure userId is valid before proceeding
+    // ... (logic unchanged)
     if (!userId) return <LoadingScreen message="Waiting for user data..." />; 
     
     const [isSalesModalOpen, setSalesModalOpen] = useState(false);
@@ -186,7 +194,6 @@ const DashboardScreen = ({ restaurant, userId }) => {
     const [loading, setLoading] = useState(true);
 
     const calculatePredictions = useCallback(async () => {
-        // Ensure we have a valid userId and dishes before querying
         if (!userId || !restaurant.dishes || restaurant.dishes.length === 0) {
             setPredictions([]);
             setLoading(false);
@@ -200,10 +207,9 @@ const DashboardScreen = ({ restaurant, userId }) => {
             const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
             const sevenDaysAgoMillis = sevenDaysAgoTimestamp.toMillis();
 
-            // Query remains correct: fetch user's sales, filter date locally
             const salesQuery = query(
                 collection(db, 'daily_sales'),
-                where('userId', '==', userId) // Make sure this userId is correct
+                where('userId', '==', userId)
             );
 
             const querySnapshot = await getDocs(salesQuery);
@@ -250,16 +256,15 @@ const DashboardScreen = ({ restaurant, userId }) => {
             setPredictions(newPredictions);
         } catch (error) {
             console.error("Failed to calculate predictions:", error);
-            setPredictions([]); // Clear predictions on error
+            setPredictions([]); 
         } finally {
             setLoading(false);
         }
-    }, [userId, restaurant.dishes]); // Dependencies are correct
+    }, [userId, restaurant.dishes]); 
 
     useEffect(() => {
-        // Recalculate predictions if userId or dishes change
         calculatePredictions(); 
-    }, [calculatePredictions]); // Recalculate whenever the function identity changes
+    }, [calculatePredictions]);
 
     const sendWhatsAppReport = () => {
        // ... (unchanged)
@@ -283,6 +288,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
     };
 
     return (
+        // ... (UI unchanged)
         <div>
             <Header title={restaurant.name} />
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
@@ -333,7 +339,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
             {isSalesModalOpen && (
                 <SalesEntryModal 
                     dishes={restaurant.dishes || []} 
-                    userId={userId} // Pass the correct userId
+                    userId={userId} 
                     onClose={() => setSalesModalOpen(false)}
                     onSave={calculatePredictions}
                 />
@@ -343,10 +349,10 @@ const DashboardScreen = ({ restaurant, userId }) => {
 };
 
 const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
-    // Ensure userId is present before rendering or saving
+    // ... (logic unchanged)
     if (!userId) {
         console.error("SalesEntryModal: userId is missing!");
-        return null; // Or show an error message
+        return null; 
     }
     
     const [salesData, setSalesData] = useState(
@@ -358,7 +364,6 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
     const [isSaving, setIsSaving] = useState(false);
 
     const handleInputChange = (dishId, field, value) => {
-        // ... (unchanged)
         const numValue = value === '' ? '' : Math.max(0, parseInt(value, 10));
         setSalesData(prev => ({
             ...prev,
@@ -372,7 +377,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
             const date = Timestamp.fromDate(yesterday);
-            const formattedDate = formatDate(date); // Use consistent date format YYYY-MM-DD
+            const formattedDate = formatDate(date); 
             const batch = writeBatch(db);
 
             for (const dish of dishes) {
@@ -380,11 +385,10 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                 const wasted = salesData[dish.id].wasted || 0;
                 
                 if (sold > 0 || wasted > 0) {
-                     // *** FIX: Create a unique Document ID per user, per day, per dish ***
                     const docId = `${userId}_${formattedDate}_${dish.id}`;
                     const saleRef = doc(db, 'daily_sales', docId);
                     batch.set(saleRef, {
-                        userId, // Ensure userId is saved correctly
+                        userId, 
                         dishId: dish.id,
                         dishName: dish.name,
                         quantitySold: sold,
@@ -394,7 +398,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                 }
             }
             await batch.commit();
-            onSave(); // Refresh dashboard predictions
+            onSave(); 
             onClose();
         } catch (error) {
             console.error("Error saving sales data: ", error);
@@ -405,7 +409,7 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
     };
     
     return (
-        // ... (Modal structure unchanged, ensure dishes map checks for existence)
+        // ... (UI unchanged)
          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
                 <div className="p-4 border-b">
@@ -457,17 +461,16 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
 };
 
 const LiveOrdersScreen = ({ restaurant, userId }) => {
-    // Ensure userId is valid before proceeding
+    // ... (logic unchanged)
     if (!userId) return <LoadingScreen message="Waiting for user data..." />;
 
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Query remains correct
         const ordersQuery = query(
             collection(db, 'live_orders'),
-            where('userId', '==', userId), // Ensure correct userId is used
+            where('userId', '==', userId), 
             where('status', 'in', ['pending', 'accepted'])
         );
 
@@ -489,17 +492,16 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
         });
 
         return () => unsubscribe();
-    }, [userId]); // Dependency is correct
+    }, [userId]); 
 
     const addTestOrder = async () => {
-        // ... (Customer capture logic unchanged but relies on correct userId)
         const testCustomer = {
             name: 'Test Customer ' + Math.floor(Math.random() * 100),
             phone: '919876500000' 
         };
         try {
             const orderRef = await addDoc(collection(db, 'live_orders'), {
-                userId: userId, // Ensure correct userId is saved
+                userId: userId, 
                 customerName: testCustomer.name,
                 customerPhone: testCustomer.phone, 
                 items: [
@@ -511,11 +513,10 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                 createdAt: Timestamp.now()
             });
 
-             // *** FIX: Customer document ID should be unique per user ***
             const customerDocId = `${userId}_${testCustomer.phone}`; 
             const customerRef = doc(db, 'customers', customerDocId);
             await setDoc(customerRef, {
-                userId: userId, // Ensure correct userId is saved
+                userId: userId, 
                 name: testCustomer.name,
                 phone: testCustomer.phone,
                 lastOrderAt: Timestamp.now()
@@ -527,7 +528,6 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
     };
     
     const updateOrderStatus = async (orderId, newStatus) => {
-        // ... (unchanged)
         const orderRef = doc(db, 'live_orders', orderId);
         try {
             await updateDoc(orderRef, { status: newStatus });
@@ -537,7 +537,7 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
     };
 
     return (
-        // ... (UI Structure unchanged)
+        // ... (UI unchanged)
         <div>
             <Header title="Live Orders" />
             <button
@@ -591,7 +591,7 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
 };
 
 const CustomersScreen = ({ restaurant, userId }) => {
-    // Ensure userId is valid before proceeding
+    // ... (logic unchanged)
     if (!userId) return <LoadingScreen message="Waiting for user data..." />;
 
     const [customers, setCustomers] = useState([]);
@@ -600,10 +600,9 @@ const CustomersScreen = ({ restaurant, userId }) => {
     const [sending, setSending] = useState(false);
 
     useEffect(() => {
-        // Query remains correct
         const customersQuery = query(
             collection(db, 'customers'),
-            where('userId', '==', userId), // Ensure correct userId is used
+            where('userId', '==', userId), 
             orderBy('lastOrderAt', 'desc') 
         );
 
@@ -620,10 +619,9 @@ const CustomersScreen = ({ restaurant, userId }) => {
         });
 
         return () => unsubscribe();
-    }, [userId]); // Dependency is correct
+    }, [userId]); 
 
     const sendBulkWhatsApp = () => {
-        // ... (unchanged)
         if (!message.trim()) {
             alert("Please enter a message to send.");
             return;
@@ -650,7 +648,7 @@ const CustomersScreen = ({ restaurant, userId }) => {
     };
 
     return (
-        // ... (UI Structure unchanged)
+        // ... (UI unchanged)
         <div>
             <Header title="Customers & Marketing" />
 
@@ -702,46 +700,211 @@ const CustomersScreen = ({ restaurant, userId }) => {
     );
 };
 
+// ** New Marketing AI Screen **
+const MarketingScreen = ({ restaurant, userId }) => {
+    const [topic, setTopic] = useState('');
+    const [platform, setPlatform] = useState('Instagram'); // Default platform
+    const [generatedPost, setGeneratedPost] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const generateSocialMediaPost = async () => {
+        if (!topic.trim()) {
+            setError('Please enter a topic for the post.');
+            return;
+        }
+        setIsLoading(true);
+        setError('');
+        setGeneratedPost('');
+
+        const systemPrompt = `Act as a creative and engaging social media marketing expert specializing in restaurants. You are writing a post for ${restaurant.name}, a restaurant known for ${restaurant.cuisineType || 'delicious food'}. Their target audience is primarily ${restaurant.targetAudience || 'local food lovers'}. Generate a social media post for the ${platform} platform. Keep it concise, exciting, and include relevant emojis. Include 3-5 relevant hashtags. Do not include placeholders like "[Restaurant Name]" or "[Dish Name]"; use the actual details provided. If a specific dish is mentioned, highlight it.`;
+
+        const userQuery = `Generate a social media post about: ${topic}. Restaurant name is ${restaurant.name}. Cuisine type: ${restaurant.cuisineType}. Target audience: ${restaurant.targetAudience}.`;
+
+        const apiKey = ""; // Leave empty for automatic handling
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+        };
+
+        try {
+            // Basic exponential backoff implementation
+            let response;
+            let attempts = 0;
+            const maxAttempts = 3;
+            let delay = 1000; // Start with 1 second
+
+            while (attempts < maxAttempts) {
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    break; // Success
+                } else if (response.status === 429 || response.status >= 500) {
+                    // Throttling or server error, retry
+                    attempts++;
+                    if (attempts >= maxAttempts) {
+                        throw new Error(`API call failed after ${maxAttempts} attempts with status: ${response.status}`);
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2; // Double the delay
+                } else {
+                    // Other client-side error, don't retry
+                    throw new Error(`API call failed with status: ${response.status}`);
+                }
+            }
+
+
+            const result = await response.json();
+            const candidate = result.candidates?.[0];
+
+            if (candidate && candidate.content?.parts?.[0]?.text) {
+                setGeneratedPost(candidate.content.parts[0].text);
+            } else {
+                 console.error("Unexpected API response structure:", result);
+                 setError('Failed to generate post. Unexpected response from AI.');
+            }
+        } catch (err) {
+            console.error('Error generating post:', err);
+            setError(`Failed to generate post: ${err.message}. Please check your connection and API key (if applicable).`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    // Function to copy text to clipboard
+    const copyToClipboard = () => {
+        const textArea = document.createElement("textarea");
+        textArea.value = generatedPost;
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy'); // Use execCommand for broader compatibility in iframes
+            alert('Post copied to clipboard!');
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            alert('Failed to copy text.');
+        }
+        document.body.removeChild(textArea);
+    };
+
+
+    return (
+        <div>
+            <Header title="AI Social Media Post Generator" />
+
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Create a New Post</h3>
+                <div className="mb-3">
+                    <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-1">
+                        What's the topic? (e.g., Today's Special, Weekend Offer)
+                    </label>
+                    <input
+                        type="text"
+                        id="topic"
+                        value={topic}
+                        onChange={(e) => setTopic(e.target.value)}
+                        placeholder="E.g., Special offer on Chicken Biryani"
+                        className="w-full p-2 border rounded-md"
+                    />
+                </div>
+                 <div className="mb-4">
+                    <label htmlFor="platform" className="block text-sm font-medium text-gray-700 mb-1">
+                        Platform
+                    </label>
+                    <select
+                        id="platform"
+                        value={platform}
+                        onChange={(e) => setPlatform(e.target.value)}
+                        className="w-full p-2 border rounded-md bg-white"
+                    >
+                        <option value="Instagram">Instagram</option>
+                        <option value="Facebook">Facebook</option>
+                        {/* <option value="Twitter">Twitter</option> */}
+                    </select>
+                </div>
+                <button
+                    onClick={generateSocialMediaPost}
+                    disabled={isLoading}
+                    className="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center disabled:opacity-50"
+                >
+                    {isLoading ? (
+                        <SpinnerIcon className="h-6 w-6 mr-2 animate-spin" />
+                    ) : (
+                        <SparklesIcon className="h-6 w-6 mr-2" />
+                    )}
+                    {isLoading ? 'Generating...' : 'Generate Post with AI'}
+                </button>
+                 {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+            </div>
+
+            {generatedPost && (
+                <div className="bg-white p-4 rounded-lg shadow">
+                    <h3 className="font-bold text-lg mb-2">Generated Post:</h3>
+                    <textarea
+                        value={generatedPost}
+                        onChange={(e) => setGeneratedPost(e.target.value)} // Allow editing
+                        className="w-full p-2 border rounded-md h-40 mb-3 bg-gray-50"
+                        readOnly={isLoading}
+                    />
+                     <button
+                        onClick={copyToClipboard}
+                        className="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center"
+                    >
+                       <ClipboardIcon className="h-5 w-5 mr-2" /> Copy Post Text
+                    </button>
+                    <p className="text-xs text-gray-500 mt-2 text-center">You can edit the text above before copying.</p>
+
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     // Ensure user object is valid before proceeding
     if (!user) return <LoadingScreen message="Waiting for user data..." />;
 
-    // Use state derived from props, but ensure it updates if props change
+    // Use state derived from props
     const [dishes, setDishes] = useState(restaurant.dishes || []);
     const [phone, setPhone] = useState(restaurant.phone || '');
+    const [cuisineType, setCuisineType] = useState(restaurant.cuisineType || '');
+    const [targetAudience, setTargetAudience] = useState(restaurant.targetAudience || '');
     const [newDishName, setNewDishName] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Update local state if the restaurant prop changes (e.g., after initial load)
+    // Update local state if the restaurant prop changes
     useEffect(() => {
         setDishes(restaurant.dishes || []);
         setPhone(restaurant.phone || '');
-    }, [restaurant.dishes, restaurant.phone]);
+        setCuisineType(restaurant.cuisineType || '');
+        setTargetAudience(restaurant.targetAudience || '');
+    }, [restaurant]);
 
 
-    const handleAddDish = () => {
-        // ... (unchanged)
+    const handleAddDish = () => { /* ... unchanged ... */ 
         if (newDishName.trim() === '') return;
-        const newDish = {
-            id: `dish${Date.now()}`,
-            name: newDishName.trim()
-        };
+        const newDish = { id: `dish${Date.now()}`, name: newDishName.trim() };
         setDishes([...dishes, newDish]);
         setNewDishName('');
     };
 
-    const handleRemoveDish = (idToRemove) => {
-        // ... (unchanged)
+    const handleRemoveDish = (idToRemove) => { /* ... unchanged ... */ 
         setDishes(dishes.filter(dish => dish.id !== idToRemove));
     };
     
     const handleSaveChanges = async () => {
-        // Update logic remains correct, relies on correct user.uid
         setIsSaving(true);
-        const restaurantRef = doc(db, 'restaurants', user.uid); // Ensure correct user.uid
+        const restaurantRef = doc(db, 'restaurants', user.uid);
         try {
-            const updatedData = { dishes, phone };
+            // Include new marketing fields
+            const updatedData = { dishes, phone, cuisineType, targetAudience };
             await updateDoc(restaurantRef, updatedData);
             updateRestaurant(updatedData); 
             alert("Changes saved successfully!");
@@ -753,8 +916,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
         }
     };
 
-    const shareQrViaWhatsApp = () => {
-        // ... (unchanged)
+    const shareQrViaWhatsApp = () => { /* ... unchanged ... */ 
          const menuUrl = `${window.location.origin}/menu/${user.uid}`; 
          const message = `Check out our menu and order directly here: ${menuUrl}`;
          const encodedText = encodeURIComponent(message);
@@ -763,12 +925,42 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     }
 
     return (
-        // ... (UI Structure unchanged, but relies on correct user info)
         <div>
             <Header title="Settings" />
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <p className="font-semibold">{user.displayName}</p>
                 <p className="text-sm text-gray-500">{user.email}</p>
+            </div>
+
+             {/* Restaurant Details for AI */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Restaurant Details (for AI)</h3>
+                 <div>
+                    <label htmlFor="cuisineType" className="block text-sm font-medium text-gray-700 mb-1">
+                        Type of Cuisine (e.g., Indian, Italian, Cafe)
+                    </label>
+                    <input
+                        type="text"
+                        id="cuisineType"
+                        value={cuisineType}
+                        onChange={(e) => setCuisineType(e.target.value)}
+                        placeholder="e.g., South Indian, Hyderabadi"
+                        className="w-full p-2 border rounded-md"
+                    />
+                 </div>
+                 <div>
+                     <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">
+                        Primary Customers (e.g., Families, Students, Office Workers)
+                    </label>
+                    <input
+                        type="text"
+                        id="targetAudience"
+                        value={targetAudience}
+                        onChange={(e) => setTargetAudience(e.target.value)}
+                        placeholder="e.g., Families, Young Professionals"
+                        className="w-full p-2 border rounded-md"
+                    />
+                 </div>
             </div>
 
             <div className="bg-white p-4 rounded-lg shadow mb-4">
@@ -816,10 +1008,10 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
             </button>
             
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center">
-                <h3 className="font-bold text-lg mb-2">Your Restaurant QR Code</h3>
+                 {/* ... QR Code and Share Button ... */}
+                 <h3 className="font-bold text-lg mb-2">Your Restaurant QR Code</h3>
                 <div className="flex justify-center my-2">
                     <div className="p-2 border rounded-md">
-                        {/* Ensure user.uid is valid */}
                         <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="Restaurant QR Code" />
                     </div>
                 </div>
@@ -862,12 +1054,13 @@ const ProFeatureLock = ({ title, description }) => (
         </div>
     </div>
 );
+// ** Updated BottomNavBar **
 const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
-    // ... (unchanged)
     const navItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon }, 
-        { id: 'customers', label: 'Customers', icon: UsersIcon }, 
+        { id: 'marketing', label: 'Marketing AI', icon: SparklesIcon }, // New Marketing Icon
+        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon },
+        { id: 'customers', label: 'Customers', icon: UsersIcon },
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
     return (
@@ -894,8 +1087,7 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro }) => {
     );
 };
 
-// --- Icon Components ---
-// ... (unchanged)
+// --- Icon Components (Lucide React - Added SparklesIcon, SpinnerIcon, ClipboardIcon) ---
 const Icon = ({ children }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>;
 const PlusIcon = () => <Icon><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
 const AlertTriangleIcon = () => <Icon><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></Icon>;
@@ -909,4 +1101,7 @@ const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 
 const SendIcon = () => <Icon><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
 const Share2Icon = () => <Icon><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></Icon>;
 const UsersIcon = () => <Icon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
+const SparklesIcon = () => <Icon><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></Icon>;
+const SpinnerIcon = () => <Icon><path d="M21 12a9 9 0 1 1-6.219-8.56"/></Icon>;
+const ClipboardIcon = () => <Icon><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></Icon>;
 
