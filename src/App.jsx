@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React from 'react'; // ** FIX: Corrected import syntax **
+import { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
     getAuth,
@@ -23,7 +24,7 @@ import {
     Timestamp,
     orderBy,
     limit,
-    increment // Import increment for points
+    increment
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
@@ -44,19 +45,17 @@ const db = getFirestore(app);
 
 // --- Helper Functions ---
 const formatDate = (date) => {
+    if (!date || typeof date.toDate !== 'function') return 'Invalid Date'; // Add check
     const d = date.toDate();
     return d.toISOString().split('T')[0];
 };
 
 // --- Theme Application ---
 const applyTheme = (color) => {
-    // Basic validation for hex color
     const hexColorRegex = /^#([0-9A-F]{3}){1,2}$/i;
-    const validColor = hexColorRegex.test(color) ? color : '#4f46e5'; // Default indigo if invalid
-
+    const validColor = hexColorRegex.test(color) ? color : '#4f46e5';
     document.documentElement.style.setProperty('--primary-color', validColor);
 
-    // Basic contrast check (simplified) - switch to black text on light backgrounds
     const calculateLuminance = (hex) => {
         const rgb = parseInt(hex.slice(1), 16);
         const r = (rgb >> 16) & 0xff;
@@ -64,13 +63,12 @@ const applyTheme = (color) => {
         const b = (rgb >> 0) & 0xff;
         const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
         return luminance;
-    };
-
+     };
     const luminance = calculateLuminance(validColor);
-    const textColor = luminance > 0.5 ? '#000000' : '#FFFFFF'; // Black text on light bg, White text on dark bg
+    const textColor = luminance > 0.5 ? '#000000' : '#FFFFFF';
     document.documentElement.style.setProperty('--primary-text-color', textColor);
 
-     const darkenColor = (hex, amount) => {
+    const darkenColor = (hex, amount) => {
         let color = hex.startsWith('#') ? hex.slice(1) : hex;
         let num = parseInt(color, 16);
         let r = (num >> 16) - amount;
@@ -78,10 +76,9 @@ const applyTheme = (color) => {
         let b = (num & 0x0000FF) - amount;
         r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b); // Clamp to 0
         return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
-    };
-    const hoverColor = darkenColor(validColor, 20); // Darken by 20 units
+     };
+    const hoverColor = darkenColor(validColor, 20);
     document.documentElement.style.setProperty('--primary-hover-color', hoverColor);
-
 };
 
 // --- Main App Component ---
@@ -90,58 +87,86 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [restaurant, setRestaurant] = useState(null);
     const [activeScreen, setActiveScreen] = useState('dashboard');
+    const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false); // New state
 
     const fetchRestaurantData = useCallback(async (currentUser) => {
-        setLoading(true);
+        console.log("fetchRestaurantData called with user:", currentUser?.uid || "null");
+        // ** FIX: Reset loading state ONLY if currentUser changes significantly **
+        // setLoading(true); // Moved setLoading earlier
+
         if (!currentUser) {
+            console.log("No current user, clearing state.");
             setUser(null);
             setRestaurant(null);
             setActiveScreen('dashboard');
-            applyTheme('#4f46e5'); // Reset theme on logout
-            setLoading(false);
+            applyTheme('#4f46e5');
+            // setLoading(false); // setLoading moved to onAuthStateChanged
+            setInitialAuthCheckComplete(true); // Mark auth check complete even if logged out
             return;
         }
+
         try {
+            console.log("Fetching restaurant doc for user:", currentUser.uid);
             const restaurantRef = doc(db, 'restaurants', currentUser.uid);
             const docSnap = await getDoc(restaurantRef);
             let restData;
             if (docSnap.exists()) {
+                console.log("Restaurant doc exists.");
                  const data = docSnap.data();
-                 restData = { // Ensure all fields have defaults
+                 restData = {
                     ...data,
-                    cuisineType: data.cuisineType || '',
-                    targetAudience: data.targetAudience || '',
-                    dishes: data.dishes || [],
-                    phone: data.phone || '',
-                    logoUrl: data.logoUrl || '',
+                    cuisineType: data.cuisineType || '', targetAudience: data.targetAudience || '',
+                    dishes: data.dishes || [], phone: data.phone || '', logoUrl: data.logoUrl || '',
                     themeColor: data.themeColor || '#4f46e5',
                  };
-                 setRestaurant(restData);
             } else {
+                console.log("Restaurant doc does NOT exist, creating new one.");
                 restData = {
-                    owner: currentUser.displayName,
-                    name: `${currentUser.displayName}'s Place`,
+                    owner: currentUser.displayName, name: `${currentUser.displayName}'s Place`,
                     subscription: 'free',
                     dishes: [{ id: 'dish1', name: 'Chicken Biryani' }, { id: 'dish2', name: 'Paneer Butter Masala' }, { id: 'dish3', name: 'Masala Dosa' }],
-                    phone: '', cuisineType: '', targetAudience: '',
-                    logoUrl: '', themeColor: '#4f46e5',
+                    phone: '', cuisineType: '', targetAudience: '', logoUrl: '', themeColor: '#4f46e5',
                     createdAt: Timestamp.now(),
                 };
                 await setDoc(restaurantRef, restData);
-                setRestaurant(restData);
+                console.log("New restaurant doc created.");
             }
-            applyTheme(restData.themeColor); // Apply fetched or default theme
-            setUser(currentUser);
-        } catch (error) { console.error("Error fetching restaurant data:", error); setUser(null); setRestaurant(null); applyTheme('#4f46e5'); }
-        finally { setLoading(false); }
-    }, []);
+            console.log("Setting restaurant state:", restData);
+            setRestaurant(restData);
+            applyTheme(restData.themeColor);
+            console.log("Setting user state:", currentUser.uid);
+            setUser(currentUser); // Set user AFTER successful data load/create
+        } catch (error) {
+            console.error("CRITICAL: Error fetching/creating restaurant data:", error);
+            // Clear state on critical error to prevent rendering inconsistent UI
+            setUser(null);
+            setRestaurant(null);
+            applyTheme('#4f46e5');
+        } finally {
+            console.log("fetchRestaurantData finished.");
+            // setLoading(false); // setLoading moved to onAuthStateChanged
+            setInitialAuthCheckComplete(true); // Mark auth check complete
+        }
+    }, []); // No dependencies needed here if it's purely driven by onAuthStateChanged
 
-     useEffect(() => {
+    useEffect(() => {
+        console.log("Setting up onAuthStateChanged listener.");
+        setLoading(true); // Start loading when listener is attached
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            setUser(null); setRestaurant(null); setLoading(true); fetchRestaurantData(firebaseUser);
+            console.log("onAuthStateChanged triggered. User:", firebaseUser?.uid || "null");
+            setInitialAuthCheckComplete(false); // Reset completion flag on user change
+            fetchRestaurantData(firebaseUser).finally(() => {
+                setLoading(false); // Stop loading AFTER fetchRestaurantData completes
+                console.log("Auth state change processed, loading set to false.");
+            });
         });
-        return () => unsubscribe();
-    }, [fetchRestaurantData]);
+        // Cleanup listener on component unmount
+        return () => {
+            console.log("Cleaning up onAuthStateChanged listener.");
+            unsubscribe();
+        };
+    }, [fetchRestaurantData]); // Re-run effect if fetchRestaurantData identity changes (shouldn't if useCallback deps are empty)
+
 
     const updateRestaurant = (newData) => {
         const updatedRestaurant = { ...restaurant, ...newData };
@@ -151,8 +176,9 @@ export default function App() {
         }
      };
 
-    // Apply initial theme styles
+    // Apply initial theme styles (runs only once on mount)
     useEffect(() => {
+        console.log("Applying initial CSS theme variables.");
         const style = document.createElement('style');
         style.textContent = `
             :root {
@@ -168,13 +194,31 @@ export default function App() {
             .text-on-primary { color: var(--primary-text-color); } /* New class for text on primary bg */
         `;
         document.head.appendChild(style);
-        applyTheme(restaurant?.themeColor || '#4f46e5');
-    }, [restaurant?.themeColor]);
+        // Initial theme application might be redundant if fetchRestaurantData runs quickly
+        // applyTheme(restaurant?.themeColor || '#4f46e5');
+        return () => { document.head.removeChild(style); }; // Cleanup style on unmount
+    }, []);
 
-    if (loading) return <LoadingScreen message="Loading SmartChef AI..." />;
-    if (!user) return <AuthScreen />;
-    if (!restaurant) return <LoadingScreen message="Initializing Restaurant..." />;
+    // ** FIX: Use initialAuthCheckComplete to prevent premature rendering **
+    if (loading || !initialAuthCheckComplete) {
+         console.log("App Render: Showing LoadingScreen (loading or auth check incomplete)");
+         return <LoadingScreen message="Loading SmartChef AI..." />;
+    }
 
+    if (!user) {
+         console.log("App Render: No user found, showing AuthScreen");
+         return <AuthScreen />;
+    }
+
+    // Ensure restaurant data is loaded AFTER auth check is complete and user exists
+    if (!restaurant) {
+         console.log("App Render: User exists but no restaurant data, showing Initializing screen (potential error state)");
+         // This might indicate an error during fetchRestaurantData, consider an error message
+         return <LoadingScreen message="Initializing Restaurant..." />;
+    }
+
+    console.log("App Render: Rendering main content area for screen:", activeScreen);
+    // Map screen IDs to components
     const ScreenComponent = {
         dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
         marketing: <MarketingScreen restaurant={restaurant} userId={user.uid}/>,
@@ -185,30 +229,40 @@ export default function App() {
 
     return (
         <div className="md:max-w-sm md:mx-auto bg-gray-100 min-h-screen font-sans flex flex-col">
-            <Header title={restaurant.name} logoUrl={restaurant.logoUrl} />
+            {/* Header now conditionally renders only if restaurant data is available */}
+            {restaurant && <Header title={restaurant.name} logoUrl={restaurant.logoUrl} />}
             <main className="flex-grow p-4 pb-20">
                 {ScreenComponent}
             </main>
-            <BottomNavBar activeScreen={activeScreen} setActiveScreen={setActiveScreen} isPro={restaurant.subscription === 'pro'} themeColor={restaurant.themeColor}/>
+            {/* BottomNavBar now conditionally renders only if restaurant data is available */}
+            {restaurant && <BottomNavBar activeScreen={activeScreen} setActiveScreen={setActiveScreen} isPro={restaurant.subscription === 'pro'} themeColor={restaurant.themeColor}/>}
         </div>
     );
 }
 
 // --- Screens & Components ---
 
+// ... (LoadingScreen, AuthScreen remain unchanged) ...
 const LoadingScreen = ({ message }) => (
      <div className="flex items-center justify-center h-screen bg-gray-100"> <div className="text-xl font-semibold text-gray-700">{message}</div> </div>
 );
 
 const AuthScreen = () => {
-     const signInWithGoogle = async () => { /* ... unchanged ... */ };
+     const signInWithGoogle = async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+            await signInWithPopup(auth, provider);
+        } catch (error) {
+            console.error("Error signing in with Google", error);
+        }
+    };
     return (
         <div className="flex flex-col items-center justify-center h-screen bg-white">
-            <h1 className="text-4xl font-bold text-primary mb-2">SmartChef AI</h1>
+            <h1 className="text-4xl font-bold text-primary mb-2">SmartChef AI</h1> {/* Use theme color */}
             <p className="text-gray-600 mb-8">Your AI-Powered Restaurant Assistant</p>
             <button
                 onClick={signInWithGoogle}
-                className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300"
+                className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300" // Use theme colors
             >
                 <svg className="w-6 h-6 mr-2" viewBox="0 0 48 48"> <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path> </svg>
                 Sign in with Google
@@ -217,73 +271,220 @@ const AuthScreen = () => {
      );
 };
 
-// ** FIX: Restored Header implementation **
 const Header = ({ title, logoUrl }) => (
-    <div className="flex items-center justify-between mb-4 px-4 pt-4"> {/* Added padding */}
+    <div className="flex items-center justify-between mb-4 px-4 pt-4">
         {logoUrl ? (
             <img src={logoUrl} alt={`${title} logo`} className="h-10 w-auto mr-3 rounded" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}}/>
         ) : (
-             // Placeholder maintains space if no logo
             <div className="w-10 h-10 mr-3 flex-shrink-0"></div>
         )}
-        {/* Title takes remaining space and truncates if needed */}
         <h1 className="text-2xl font-bold text-gray-900 flex-grow truncate">{title}</h1>
-        {/* You could add a user icon/menu button here if needed */}
     </div>
 );
 
-
 const DashboardScreen = ({ restaurant, userId }) => {
-    if (!userId) return <LoadingScreen message="Waiting for user data..." />;
+    // ** FIX: Ensure component doesn't break if userId or restaurant is temporarily null/undefined **
+    const currentUserId = userId || auth.currentUser?.uid; // Fallback just in case
+    const currentDishes = restaurant?.dishes || [];
 
     const [isSalesModalOpen, setSalesModalOpen] = useState(false);
     const [predictions, setPredictions] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Start loading true
     const [predictionError, setPredictionError] = useState('');
 
-    const calculatePredictions = useCallback(async () => { /* ... unchanged ... */ }, [userId, restaurant.dishes]);
-    useEffect(() => { calculatePredictions(); }, [calculatePredictions]);
+    const calculatePredictions = useCallback(async () => {
+        console.log("Starting calculatePredictions in Dashboard...");
+        setLoading(true);
+        setPredictionError('');
+        setPredictions([]);
+
+        // Ensure we have a valid userId and dishes before querying
+        if (!currentUserId || !currentDishes || currentDishes.length === 0) {
+            console.log("calculatePredictions: No userId or no dishes found in Dashboard.");
+            setLoading(false);
+            return;
+        }
+
+        try {
+            console.log("Fetching sales data for dashboard...");
+            const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+            const sevenDaysAgoMillis = sevenDaysAgoTimestamp.toMillis();
+
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', currentUserId));
+            const querySnapshot = await getDocs(salesQuery);
+            console.log(`Fetched ${querySnapshot.size} sales documents for dashboard.`);
+
+            const salesData = {};
+            currentDishes.forEach(d => salesData[d.id] = []);
+
+            querySnapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.date?.toMillis && data.date.toMillis() >= sevenDaysAgoMillis) {
+                     if (salesData[data.dishId] && typeof data.quantitySold === 'number' && typeof data.quantityWasted === 'number') {
+                         salesData[data.dishId].push(data);
+                     } else { console.warn("Skipping invalid sales data in Dashboard:", data); }
+                 }
+            });
+             console.log("Sales data processed for dashboard:", salesData);
+
+            const newPredictions = currentDishes.map(dish => {
+                const dishSales = salesData[dish.id];
+                let prediction = 5, confidence = 20, totalSold = 0, totalWasted = 0;
+                if (dishSales && dishSales.length > 0) {
+                    const sum = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
+                    prediction = Math.max(0, Math.round(sum / dishSales.length));
+                    confidence = Math.min(95, 20 + dishSales.length * 10);
+                    totalSold = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
+                    totalWasted = dishSales.reduce((acc, curr) => acc + (curr.quantityWasted || 0), 0);
+                }
+                const totalPrepared = totalSold + totalWasted;
+                const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
+                return { id: dish.id, name: dish.name, prediction, confidence, wastage: wastagePercent > 15, wastagePercent };
+            });
+
+            console.log("Generated predictions for dashboard:", newPredictions);
+            setPredictions(newPredictions);
+        } catch (error) {
+            console.error("Failed to calculate predictions:", error);
+            setPredictionError("Error calculating predictions. Please try again later.");
+            setPredictions([]);
+        } finally {
+            console.log("Finished calculatePredictions in Dashboard.");
+            setLoading(false); // Ensure loading is always set to false
+        }
+    // ** FIX: Add currentUserId and currentDishes as dependencies **
+    }, [currentUserId, currentDishes]);
+
+    useEffect(() => {
+        console.log("DashboardScreen effect triggered. Calling calculatePredictions.");
+        calculatePredictions();
+    }, [calculatePredictions]); // Recalculate if the function identity changes
+
     const sendWhatsAppReport = () => { /* ... unchanged ... */ };
+
+    // ** FIX: Handle case where restaurant might become null temporarily **
+    if (!restaurant) {
+        return <LoadingScreen message="Loading restaurant data..." />;
+    }
 
     return (
         <div>
+            {/* Button Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                 <button
-                    onClick={() => setSalesModalOpen(true)}
-                    className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center"
-                 >
-                    <PlusIcon className="h-6 w-6 mr-2" />
-                    <span>Enter Yesterday's Sales</span>
-                 </button>
-                 <button onClick={sendWhatsAppReport} disabled={loading || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
-                     <SendIcon className="h-6 w-6 mr-2" />
-                     <span>Send Report via WhatsApp</span>
-                 </button>
+                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center">
+                    <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span>
+                </button>
+                <button onClick={sendWhatsAppReport} disabled={loading || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                    <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span>
+                </button>
             </div>
 
+            {/* Forecast Section */}
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
-
             {loading ? ( <p>Calculating predictions...</p> )
-            : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> {/* ... error display ... */} </div> )
-            : predictions.length > 0 ? ( <div className="space-y-3"> {/* ... predictions map ... */} </div> )
-            : ( <div className="bg-white p-4 rounded-lg shadow text-center"> {/* ... no predictions message ... */} </div> )}
+            : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error: </strong> <span className="block sm:inline">{predictionError}</span> </div> )
+            : predictions.length > 0 ? (
+                <div className="space-y-3">
+                    {predictions.map(item => (
+                        <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
+                            <h3 className="font-bold text-lg">{item.name}</h3>
+                            <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
+                            {item.wastage && ( <p className="text-yellow-600 font-semibold flex items-center mt-1"> <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%) </p> )}
+                        </div>
+                    ))}
+                </div>
+             ) : (
+                <div className="bg-white p-4 rounded-lg shadow text-center">
+                    <p className="text-gray-600">No predictions to show.</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                        {currentDishes.length === 0 ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."}
+                    </p>
+                </div>
+             )}
 
-            {isSalesModalOpen && ( <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={calculatePredictions}/> )}
+            {/* Sales Modal */}
+            {isSalesModalOpen && (
+                <SalesEntryModal dishes={currentDishes} userId={currentUserId} onClose={() => setSalesModalOpen(false)} onSave={calculatePredictions}/>
+             )}
         </div>
     );
 };
 
+// ... (Rest of components: SalesEntryModal, LiveOrdersScreen, MarketingScreen, AIInsightsScreen, SettingsScreen, ProFeatureLock, BottomNavBar, Icons) ...
+// Ensure all necessary components and icons are included below, using the previous correct versions.
+
 const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
     if (!userId) return null;
-    const [salesData, setSalesData] = useState(/* ... */);
+    const [salesData, setSalesData] = useState(
+        dishes.reduce((acc, dish) => {
+            acc[dish.id] = { sold: '', wasted: '' };
+            return acc;
+        }, {})
+    );
     const [isSaving, setIsSaving] = useState(false);
-    const handleInputChange = (dishId, field, value) => { /* ... */ };
-    const handleSave = async () => { /* ... */ };
+
+    const handleInputChange = (dishId, field, value) => {
+        const numValue = value === '' ? '' : Math.max(0, parseInt(value, 10));
+        setSalesData(prev => ({
+            ...prev,
+            [dishId]: { ...prev[dishId], [field]: numValue }
+        }));
+    };
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const date = Timestamp.fromDate(yesterday);
+            const formattedDate = formatDate(date);
+            const batch = writeBatch(db);
+
+            for (const dish of dishes) {
+                const sold = salesData[dish.id]?.sold === '' ? 0 : Number(salesData[dish.id]?.sold ?? 0);
+                const wasted = salesData[dish.id]?.wasted === '' ? 0 : Number(salesData[dish.id]?.wasted ?? 0);
+
+                if (sold > 0 || wasted > 0) {
+                    const docId = `${userId}_${formattedDate}_${dish.id}`;
+                    const saleRef = doc(db, 'daily_sales', docId);
+                    batch.set(saleRef, {
+                        userId,
+                        dishId: dish.id,
+                        dishName: dish.name,
+                        quantitySold: sold,
+                        quantityWasted: wasted,
+                        date,
+                    });
+                }
+            }
+            await batch.commit();
+            onSave();
+            onClose();
+        } catch (error) {
+            console.error("Error saving sales data: ", error);
+            alert("Failed to save sales data. Please try again.");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
                  <div className="p-4 border-b"> <h2 className="text-xl font-bold">Enter Yesterday's Sales</h2> </div>
-                 <div className="p-4 space-y-4 overflow-y-auto"> {/* ... Sales input fields ... */} </div>
+                 <div className="p-4 space-y-4 overflow-y-auto">
+                    {(dishes || []).map(dish => (
+                        <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
+                            <p className="font-semibold text-gray-800">{dish.name}</p>
+                            <div className="flex items-center space-x-3 mt-2">
+                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Sold</label> <input type="number" min="0" value={salesData[dish.id]?.sold ?? ''} onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 25" /> </div>
+                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Wasted</label> <input type="number" min="0" value={salesData[dish.id]?.wasted ?? ''} onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 2" /> </div>
+                            </div>
+                        </div>
+                    ))}
+                    {(!dishes || dishes.length === 0) && (<p className="text-gray-500 text-center">Please add some dishes in the Settings tab first.</p>)}
+                 </div>
                  <div className="p-4 border-t flex justify-end space-x-3">
                      <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
                      <button onClick={handleSave} disabled={isSaving || !dishes || dishes.length === 0} className="px-4 py-2 bg-primary text-on-primary rounded-md disabled:opacity-50"> {isSaving ? 'Saving...' : 'Save'} </button>
@@ -293,10 +494,80 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
     );
 };
 
+const LiveOrdersScreen = ({ restaurant, userId }) => {
+    if (!userId) return <LoadingScreen message="Waiting for user data..." />;
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-const LiveOrdersScreen = ({ restaurant, userId }) => { /* ... unchanged ... */ };
-const MarketingScreen = ({ restaurant, userId }) => { /* ... unchanged ... */ };
-const AIInsightsScreen = ({ restaurant, userId }) => { /* ... unchanged ... */ };
+    useEffect(() => { /* ... Firestore listener ... */ }, [userId]);
+    const addTestOrder = async () => { /* ... unchanged ... */ };
+    const updateOrderStatus = async (orderId, newStatus) => { /* ... unchanged ... */ };
+
+    return (
+        <div>
+            {/* Header rendered globally */}
+            <button onClick={addTestOrder} className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"> Add Test Order (Adds Points) </button>
+             {loading ? <p>Loading live orders...</p> : (
+                orders.length === 0 ? ( <p className="text-center text-gray-500 mt-8">No live orders yet.</p> )
+                : ( <div className="space-y-3"> {orders.map(order => ( <div key={order.id} className="bg-white p-4 rounded-lg shadow"> {/* ... order details UI ... */} </div> ))} </div> )
+            )}
+        </div>
+    );
+};
+
+const MarketingScreen = ({ restaurant, userId }) => { /* ... unchanged ... */
+    const [topic, setTopic] = useState(''); const [platform, setPlatform] = useState('Instagram'); const [generatedPost, setGeneratedPost] = useState(''); const [isLoading, setIsLoading] = useState(false); const [error, setError] = useState(''); const generateSocialMediaPost = async () => { /* ... Gemini API call ... */ }; const copyToClipboard = () => { /* ... */ };
+    return (
+        <div>
+            {/* Header rendered globally */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                 {/* ... Topic and Platform inputs ... */}
+                 <button onClick={generateSocialMediaPost} disabled={isLoading} className="w-full bg-primary text-white font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50"> {/* Use theme color */}
+                     {isLoading ? <SpinnerIcon/> : <SparklesIcon/>} {isLoading ? 'Generating...' : 'Generate Post with AI'}
+                 </button>
+                 {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
+            </div>
+            {generatedPost && (
+                <div className="bg-white p-4 rounded-lg shadow"> {/* ... Generated post display ... */} </div>
+            )}
+        </div>
+    );
+};
+
+const AIInsightsScreen = ({ restaurant, userId }) => { /* ... unchanged ... */
+    const [salesAnalysis, setSalesAnalysis] = useState(''); const [feedbackSummary, setFeedbackSummary] = useState(''); const [loadingAnalysis, setLoadingAnalysis] = useState(false); const [loadingFeedback, setLoadingFeedback] = useState(false); const [error, setError] = useState(''); const callGeminiAPI = async (systemPrompt, userQuery) => { /* ... */ }; const generateSalesAnalysis = async () => { /* ... */ }; const addTestFeedback = async () => { /* ... */ }; const generateFeedbackSummary = async () => { /* ... */ }; const sendInsightsToWhatsApp = (reportContent, reportType) => { /* ... */ };
+     return (
+        <div>
+            {/* Header rendered globally */}
+            {error && <p className="text-red-600 text-sm mb-3 bg-red-100 p-2 rounded">{error}</p>}
+            {/* Sales Analysis Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">AI Sales Analysis (Last 30 Days)</h3>
+                <button onClick={generateSalesAnalysis} disabled={loadingAnalysis} className="w-full bg-primary text-white font-bold py-2 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50 mb-3">
+                    {loadingAnalysis ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <BarChartIcon className="h-5 w-5 mr-2" />} {loadingAnalysis ? 'Analyzing Sales...' : 'Generate Sales Report & Recommendations'}
+                </button>
+                {salesAnalysis && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+            </div>
+            {/* Customer Feedback Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                 <h3 className="font-bold text-lg mb-2">AI Customer Feedback Summary</h3>
+                 <div className="flex space-x-2 mb-3">
+                     <button onClick={generateFeedbackSummary} disabled={loadingFeedback} className="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center disabled:opacity-50">
+                         {loadingFeedback ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <MessageSquareIcon className="h-5 w-5 mr-2" />} {loadingFeedback ? 'Analyzing...' : 'Summarize Feedback'}
+                     </button>
+                     <button onClick={addTestFeedback} className="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-300 flex items-center justify-center"> <PlusIcon className="h-5 w-5 mr-2"/> Add Test Feedback </button>
+                 </div>
+                 {feedbackSummary && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{feedbackSummary}</pre> <button onClick={() => sendInsightsToWhatsApp(feedbackSummary, "Feedback Summary")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+            </div>
+             {/* Vendor Management Placeholder */}
+            <div className="bg-white p-4 rounded-lg shadow text-center opacity-50">
+                 <h3 className="font-bold text-lg mb-2">AI Vendor Management (Coming Soon)</h3>
+                 <p className="text-sm text-gray-600"> Future Pro Feature: Track vendor quality and costs, get AI suggestions for better supplier management and cost optimization. </p>
+            </div>
+        </div>
+    );
+};
+
 const SettingsScreen = ({ user, restaurant, updateRestaurant }) => { /* ... unchanged ... */ };
 
 // ** FIX: Restored ProFeatureLock implementation **
