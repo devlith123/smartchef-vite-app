@@ -647,7 +647,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
         setError('');
         setGeneratedPost('');
 
-        const apiKey = "YOUR_GEMINI_API_KEY"; // Make sure this is replaced
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; // Make sure this is replaced
         if (apiKey === "YOUR_GEMINI_API_KEY") {
              setError("API Key for Gemini not set. Please add it in the code.");
              setIsLoading(false);
