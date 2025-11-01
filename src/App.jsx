@@ -652,7 +652,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
 
         const systemPrompt = `Act as a creative and engaging social media marketing expert specializing in restaurants. You are writing a post for ${restaurant.name}, a restaurant known for ${restaurant.cuisineType || 'delicious food'}. Their target audience is primarily ${restaurant.targetAudience || 'local food lovers'}. Generate a social media post for the ${platform} platform. Keep it concise, exciting, and include relevant emojis. Include 3-5 relevant hashtags. Do not include placeholders like "[Restaurant Name]" or "[Dish Name]"; use the actual details provided. If a specific dish is mentioned, highlight it.`;
         const userQuery = `Generate a social media post about: ${topic}. Restaurant name is ${restaurant.name}. Cuisine type: ${restaurant.cuisineType}. Target audience: ${restaurant.targetAudience}.`;
-        const apiKey = "";
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo";
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
 
