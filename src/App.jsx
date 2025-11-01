@@ -587,7 +587,7 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
                 userId: userId, name: testCustomer.name, phone: testCustomer.phone,
                 lastOrderAt: Timestamp.now(),
                 loyaltyPoints: increment(pointsEarned),
-                pointsNotificationSent: notificationAlreadySent
+                pointsNotificationSent: newTotalPoints >= 1000 ? notificationAlreadySent : false // Reset flag if below 1000
             }, { merge: true });
 
             if (newTotalPoints >= 1000 && !notificationAlreadySent) {
@@ -684,7 +684,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, []); // Empty deps, it's a generic function
 
     const generateSocialMediaPost = async (promptTopic) => {
         const finalTopic = promptTopic || topic;
@@ -821,19 +821,102 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         return () => unsubscribe();
     }, [userId]);
 
-    const callGeminiAPI = async (systemPrompt, userQuery) => { /* ... unchanged ... */ };
-    const generateSalesAnalysis = async () => { /* ... unchanged ... */ };
+    const callGeminiAPI = async (systemPrompt, userQuery) => {
+        setError('');
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; // Make sure this is replaced
+        if (apiKey === "YOUR_GEMINI_API_KEY") {
+             setError("API Key for Gemini not set. Please add it in the code.");
+             return null;
+        }
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
+        try {
+            let response; let attempts = 0; const maxAttempts = 3; let delay = 1000;
+            while (attempts < maxAttempts) {
+                response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (response.ok) break;
+                else if (response.status === 429 || response.status >= 500) { attempts++; if (attempts >= maxAttempts) throw new Error(`API failed after ${maxAttempts} attempts: ${response.status}`); await new Promise(resolve => setTimeout(resolve, delay)); delay *= 2; }
+                else throw new Error(`API failed with status: ${response.status}`);
+            }
+            if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+            const result = await response.json();
+            const candidate = result.candidates?.[0];
+            if (candidate && candidate.content?.parts?.[0]?.text) { return candidate.content.parts[0].text; }
+            else { throw new Error('Unexpected API response structure.'); }
+        } catch (err) { console.error('Gemini API Error:', err); setError(`AI Error: ${err.message}`); return null; }
+    };
+    
+    const generateSalesAnalysis = async () => {
+        setLoadingAnalysis(true);
+        setSalesAnalysis('');
+        try {
+            const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId), where('date', '>=', Timestamp.fromDate(thirtyDaysAgo)));
+            const querySnapshot = await getDocs(salesQuery);
+            const salesSummary = {};
+            (restaurant.dishes || []).forEach(d => salesSummary[d.id] = { name: d.name, sold: 0, wasted: 0 });
+            querySnapshot.forEach(doc => { const data = doc.data(); if (salesSummary[data.dishId]) { salesSummary[data.dishId].sold += data.quantitySold; salesSummary[data.dishId].wasted += data.quantityWasted; } });
+            let dataSummary = "Last 30 Days Sales Data:\n";
+            Object.values(salesSummary).forEach(item => { const prepared = item.sold + item.wasted; const wastagePerc = prepared > 0 ? Math.round((item.wasted / prepared) * 100) : 0; dataSummary += `- ${item.name}: Sold ${item.sold}, Wasted ${item.wasted} (${wastagePerc}% wastage)\n`; });
+            if (querySnapshot.empty) dataSummary = "No sales data found for the last 30 days.";
+            const systemPrompt = `You are a helpful AI assistant for restaurant owners...`; // (Full prompt)
+            const userQuery = `Analyze...:\n\n${dataSummary}`;
+            const analysisResult = await callGeminiAPI(systemPrompt, userQuery);
+            if (analysisResult) setSalesAnalysis(analysisResult);
+        } catch (err) { console.error("Error generating sales analysis:", err); setError("Failed to fetch/analyze sales data."); }
+        finally { setLoadingAnalysis(false); }
+    };
+
     const addTestFeedback = async () => { /* ... unchanged ... */ };
     const generateFeedbackSummary = async () => { /* ... unchanged ... */ };
     const sendInsightsToWhatsApp = (reportContent, reportType) => { /* ... unchanged ... */ };
-    const handleGenerateOffer = async (customer) => { /* ... unchanged ... */ };
-    const sendOfferToCustomer = (customer, message) => { /* ... unchanged ... */ };
+
+    const handleGenerateOffer = async (customer) => {
+        setLoadingOffer(true);
+        setOfferModal({ isOpen: true, customer, message: 'Generating offer...' });
+        const systemPrompt = `You are a friendly restaurant marketing assistant for ${restaurant.name}. Write a short, personalized WhatsApp message to a loyal customer, ${customer.name}. Offer them a 10% discount on their next order as a thank you. Keep it casual and warm. Mention their loyalty points if they have any.`;
+        const userQuery = `Generate the offer message for ${customer.name}. They have ${customer.loyaltyPoints || 0} points.`;
+        const result = await callGeminiAPI(systemPrompt, userQuery); // Re-use callGeminiAPI
+        if (result) {
+            setOfferModal({ isOpen: true, customer, message: result });
+        } else {
+            setOfferModal({ isOpen: true, customer, message: `Failed to generate offer. Please check AI key or try again.` });
+        }
+        setLoadingOffer(false);
+    };
+    
+    const sendOfferToCustomer = (customer, message) => {
+        if (!customer.phone || !message) { alert("Customer phone or message is missing."); return; }
+        const encodedText = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${customer.phone}?text=${encodedText}`;
+        window.open(whatsappUrl, '_blank');
+        setOfferModal({ isOpen: false, customer: null, message: '' }); // Close modal
+    };
 
      return (
         <div>
-            {/* ... (Sales Analysis & Feedback sections unchanged) ... */}
-
-            {/* ** NEW: Customer Loyalty Section ** */}
+            {error && <p className="text-red-600 text-sm mb-3 bg-red-100 p-2 rounded">{error}</p>}
+            {/* Sales Analysis Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">AI Sales Analysis (Last 30 Days)</h3>
+                <button onClick={generateSalesAnalysis} disabled={loadingAnalysis} className="w-full bg-primary text-on-primary font-bold py-2 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50 mb-3">
+                    {loadingAnalysis ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <BarChartIcon className="h-5 w-5 mr-2" />} {loadingAnalysis ? 'Analyzing Sales...' : 'Generate Sales Report & Recommendations'}
+                </button>
+                {salesAnalysis && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+            </div>
+            {/* Customer Feedback Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                 <h3 className="font-bold text-lg mb-2">AI Customer Feedback Summary</h3>
+                 <div className="flex space-x-2 mb-3">
+                     <button onClick={generateFeedbackSummary} disabled={loadingFeedback} className="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center disabled:opacity-50">
+                         {loadingFeedback ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <MessageSquareIcon className="h-5 w-5 mr-2" />} {loadingFeedback ? 'Analyzing...' : 'Summarize Feedback'}
+                     </button>
+                     <button onClick={addTestFeedback} className="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-300 flex items-center justify-center"> <PlusIcon className="h-5 w-5 mr-2"/> Add Test Feedback </button>
+                 </div>
+                 {feedbackSummary && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{feedbackSummary}</pre> <button onClick={() => sendInsightsToWhatsApp(feedbackSummary, "Feedback Summary")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+            </div>
+            
+            {/* Customer Loyalty Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Customer Loyalty</h3>
                 {loadingCustomers ? <p>Loading customers...</p> : (
@@ -864,43 +947,29 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
                     )
                 )}
             </div>
-
-            {/* ... (Vendor Management placeholder unchanged) ... */}
-
-            {/* ** NEW: Offer Modal ** */}
+            
+             {/* Vendor Management Placeholder */}
+            <div className="bg-white p-4 rounded-lg shadow text-center opacity-50">
+                 <h3 className="font-bold text-lg mb-2">AI Vendor Management (Coming Soon)</h3>
+                 <p className="text-sm text-gray-600"> Future Pro Feature: Track vendor quality and costs, get AI suggestions for better supplier management and cost optimization. </p>
+            </div>
+            
+            {/* Offer Modal */}
             {offerModal.isOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-                        <div className="p-4 border-b">
-                            <h2 className="text-xl font-bold">Send Offer to {offerModal.customer?.name}</h2>
-                        </div>
+                        <div className="p-4 border-b"> <h2 className="text-xl font-bold">Send Offer to {offerModal.customer?.name}</h2> </div>
                         <div className="p-4 space-y-4 overflow-y-auto">
-                            {loadingOffer ? (
-                                <div className="flex justify-center items-center h-24">
-                                    <SpinnerIcon className="h-8 w-8 animate-spin text-primary" />
-                                </div>
-                            ) : (
-                                <textarea
-                                    value={offerModal.message}
-                                    onChange={(e) => setOfferModal(prev => ({ ...prev, message: e.target.value }))}
-                                    className="w-full p-2 border rounded-md h-32 bg-gray-50"
-                                />
-                            )}
+                            {loadingOffer ? ( <div className="flex justify-center items-center h-24"> <SpinnerIcon className="h-8 w-8 animate-spin text-primary" /> </div> )
+                            : ( <textarea value={offerModal.message} onChange={(e) => setOfferModal(prev => ({ ...prev, message: e.target.value }))} className="w-full p-2 border rounded-md h-32 bg-gray-50" /> )}
                         </div>
                         <div className="p-4 border-t flex justify-between space-x-3">
                             <button onClick={() => setOfferModal({ isOpen: false, customer: null, message: '' })} disabled={loadingOffer} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
-                            <button 
-                                onClick={() => sendOfferToCustomer(offerModal.customer, offerModal.message)} 
-                                disabled={loadingOffer} 
-                                className="px-4 py-2 bg-green-500 text-white rounded-md flex items-center justify-center disabled:opacity-50"
-                            >
-                                <SendIcon className="h-5 w-5 mr-2" /> Send via WhatsApp
-                            </button>
+                            <button onClick={() => sendOfferToCustomer(offerModal.customer, offerModal.message)} disabled={loadingOffer} className="px-4 py-2 bg-green-500 text-white rounded-md flex items-center justify-center disabled:opacity-50"> <SendIcon className="h-5 w-5 mr-2" /> Send via WhatsApp </button>
                         </div>
                     </div>
                 </div>
             )}
-
         </div>
     );
 };
@@ -923,15 +992,55 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
         setLogoUrl(restaurant.logoUrl || ''); setThemeColor(restaurant.themeColor || '#4f46e5');
      }, [restaurant]);
 
-    const handleAddDish = () => { /* ... unchanged ... */ };
-    const handleRemoveDish = (idToRemove) => { /* ... unchanged ... */ };
-    const handleSaveChanges = async () => { /* ... unchanged ... */ };
-    const shareQrViaWhatsApp = () => { /* ... unchanged ... */ };
+    const handleAddDish = () => {
+        if (newDishName.trim() === '') return;
+        const newDish = { id: `dish${Date.now()}`, name: newDishName.trim() };
+        setDishes([...dishes, newDish]); setNewDishName('');
+     };
+    const handleRemoveDish = (idToRemove) => { setDishes(dishes.filter(dish => dish.id !== idToRemove)); };
+    const handleSaveChanges = async () => {
+        setIsSaving(true); const restaurantRef = doc(db, 'restaurants', user.uid);
+        try { const updatedData = { dishes, phone, cuisineType, targetAudience, logoUrl, themeColor };
+              await updateDoc(restaurantRef, updatedData); updateRestaurant(updatedData);
+              alert("Changes saved!");
+        } catch(error) { console.error("Save Error: ", error); alert("Save failed."); }
+        finally { setIsSaving(false); }
+    };
+    const shareQrViaWhatsApp = () => {
+         const menuUrl = `${window.location.origin}/menu/${user.uid}`;
+         const message = `Check out our menu: ${menuUrl}`;
+         const encodedText = encodeURIComponent(message);
+         const whatsappUrl = `https://wa.me/?text=${encodedText}`;
+         window.open(whatsappUrl, '_blank');
+     };
     const feedbackUrl = `${window.location.origin}/feedback/${user.uid}`;
 
     return (
         <div>
             {/* ... (All settings sections unchanged) ... */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <p className="font-semibold">{user.displayName}</p> <p className="text-sm text-gray-500">{user.email}</p> </div>
+            {/* Branding Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Branding</h3>
+                 <div> <label htmlFor="logoUrl" className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label> <input type="url" id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-md"/> {logoUrl && <img src={logoUrl} alt="Preview" className="mt-2 h-10 w-auto rounded" onError={(e) => e.target.style.display='none'}/>} </div>
+                 <div> <label htmlFor="themeColor" className="block text-sm font-medium text-gray-700 mb-1">Theme Color</label> <div className="flex items-center space-x-2"> <input type="color" id="themeColor" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="p-1 h-10 w-10 block bg-white border rounded-lg cursor-pointer"/> <input type="text" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#4f46e5" className="w-full p-2 border rounded-md"/> </div> </div>
+            </div>
+            {/* Restaurant Details */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Details (for AI)</h3>
+                 <div> <label htmlFor="cuisineType" className="block text-sm font-medium text-gray-700 mb-1">Cuisine</label> <input type="text" id="cuisineType" value={cuisineType} onChange={(e) => setCuisineType(e.target.value)} placeholder="e.g., South Indian" className="w-full p-2 border rounded-md"/> </div>
+                 <div> <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">Customers</label> <input type="text" id="targetAudience" value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="e.g., Families" className="w-full p-2 border rounded-md"/> </div>
+            </div>
+            {/* WhatsApp */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">WhatsApp</h3> <p className="text-sm text-gray-600 mb-2">Your number (with country code) for reports.</p> <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g., 919876543210" className="w-full p-2 border rounded-md"/> </div>
+            {/* Dishes */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md"> <span>{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
+            <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
+            {/* QR Codes */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
+            {/* Sign Out */}
+            <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
         </div>
     );
 };
