@@ -28,14 +28,15 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
-  authDomain: "smartchefai-78cae.firebaseapp.com",
-  projectId: "smartchefai-78cae",
-  storageBucket: "smartchefai-78cae.firebasestorage.app",
-  messagingSenderId: "279030560133",
-  appId: "1:279030560133:web:02577656535c3d919180ec",
-  measurementId: "G-DRZ41NQ6J4"
+const firebaseConfig = {  
+    apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
+    authDomain: "smartchefai-78cae.firebaseapp.com",
+    projectId: "smartchefai-78cae",
+    storageBucket: "smartchefai-78cae.firebasestorage.app",
+    messagingSenderId: "279030560133",
+    appId: "1:279030560133:web:02577656535c3d919180ec",
+    measurementId: "G-DRZ41NQ6J4"
+
 };
 
 // --- Initialize Firebase ---
@@ -879,21 +880,54 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         catch (error) { console.error("Error adding test feedback:", error); alert("Failed to add test feedback."); }
     };
     
+    // ** FIX: Corrected Feedback Summary Query **
     const generateFeedbackSummary = async () => {
         setLoadingFeedback(true);
         setFeedbackSummary('');
+        setError(''); // Clear previous errors
         try {
-            const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId), orderBy('createdAt', 'desc'), limit(20));
+            // Fetch ALL feedback for the user
+            const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId));
             const querySnapshot = await getDocs(feedbackQuery);
-            if (querySnapshot.empty) { setFeedbackSummary("No recent customer feedback found."); setLoadingFeedback(false); return; }
+
+            if (querySnapshot.empty) {
+                setFeedbackSummary("No recent customer feedback found.");
+                setLoadingFeedback(false);
+                return;
+            }
+
+            // Process and sort in JavaScript
+            const feedbackList = [];
+            querySnapshot.forEach(doc => {
+                feedbackList.push(doc.data());
+            });
+
+            // Sort by createdAt timestamp, descending (newest first)
+            feedbackList.sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0));
+
+            // Get the last 20
+            const recentFeedback = feedbackList.slice(0, 20);
+
             let feedbackText = "Recent Customer Feedback:\n";
-            querySnapshot.forEach(doc => { const data = doc.data(); feedbackText += `- Rating: ${data.rating}/5, Comment: ${data.comment}\n`; });
+            recentFeedback.forEach(data => {
+                feedbackText += `- Rating: ${data.rating}/5, Comment: ${data.comment}\n`;
+            });
+            
             const systemPrompt = `You are an AI assistant helping a restaurant owner understand customer feedback. Summarize the key positive themes, negative themes, and provide 3 actionable suggestions for improvement based ONLY on the feedback provided. Be concise and constructive. Restaurant Name: ${restaurant.name}.`;
             const userQuery = `Summarize the following customer feedback and provide actionable suggestions:\n\n${feedbackText}`;
+            
             const summaryResult = await callGeminiAPI(systemPrompt, userQuery);
-            if (summaryResult) setFeedbackSummary(summaryResult);
-        } catch (err) { console.error("Error generating feedback summary:", err); setError("Failed to fetch or analyze feedback."); }
-        finally { setLoadingFeedback(false); }
+            if (summaryResult) {
+                setFeedbackSummary(summaryResult);
+            } else if (!error) { // Don't overwrite a specific API error
+                 setError("AI failed to generate a summary.");
+            }
+        } catch (err) {
+            console.error("Error generating feedback summary:", err);
+            setError("Failed to fetch or analyze feedback.");
+        } finally {
+            setLoadingFeedback(false);
+        }
     };
     
     const sendInsightsToWhatsApp = (reportContent, reportType) => {
@@ -1072,7 +1106,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
             <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md"> <span>{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
             <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
             {/* QR Codes */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> D</div>
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
             {/* Sign Out */}
             <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
