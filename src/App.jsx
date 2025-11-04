@@ -189,12 +189,8 @@ export default function App() {
         if (!style) {
             style = document.createElement('style');
             style.id = styleId;
+            // ** FIX: Simplified to only inject dynamic classes **
             style.textContent = `
-                :root {
-                    --primary-color: #4f46e5;
-                    --primary-hover-color: #4338ca;
-                    --primary-text-color: #ffffff;
-                }
                 .bg-primary { background-color: var(--primary-color); }
                 .text-primary { color: var(--primary-color); }
                 .border-primary { border-color: var(--primary-color); }
@@ -232,6 +228,7 @@ export default function App() {
     }[activeScreen];
 
     return (
+        // ** FIX: Apply dark theme background to main app div **
         <div className="md:max-w-sm md:mx-auto bg-[var(--background-primary)] min-h-screen font-sans flex flex-col">
             {restaurant && <Header title={restaurant.name} logoUrl={restaurant.logoUrl} />}
             <main className="flex-grow p-4 pb-20">
