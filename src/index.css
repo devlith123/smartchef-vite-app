@@ -1,3 +1,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 1. Define all static dark theme colors here */
+:root {
+    --background-primary: #111827; /* gray-900 */
+    --background-secondary: #1F2937; /* gray-800 */
+    --background-input: #374151; /* gray-700 */
+    --text-primary: #F9FAFB; /* gray-50 */
+    --text-secondary: #D1D5DB; /* gray-300 */
+    --text-disabled: #6B7280; /* gray-500 */
+    --border-color: #374151; /* gray-700 */
+
+    /* 2. Define dynamic theme colors (will be overridden by JS) */
+    --primary-color: #4f46e5;
+    --primary-hover-color: #4338ca;
+    --primary-text-color: #ffffff;
+}
+
+/* 3. Apply the dark theme to the whole page */
+body {
+    background-color: var(--background-primary);
+    color: var(--text-secondary);
+}
