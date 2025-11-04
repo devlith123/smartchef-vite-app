@@ -28,7 +28,7 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-const firebaseConfig = {  
+const firebaseConfig = {
     apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
     authDomain: "smartchefai-78cae.firebaseapp.com",
     projectId: "smartchefai-78cae",
@@ -36,7 +36,6 @@ const firebaseConfig = {
     messagingSenderId: "279030560133",
     appId: "1:279030560133:web:02577656535c3d919180ec",
     measurementId: "G-DRZ41NQ6J4"
-
 };
 
 // --- Initialize Firebase ---
@@ -233,7 +232,7 @@ export default function App() {
     }[activeScreen];
 
     return (
-        <div className="md:max-w-sm md:mx-auto bg-gray-100 min-h-screen font-sans flex flex-col">
+        <div className="md:max-w-sm md:mx-auto bg-[var(--background-primary)] min-h-screen font-sans flex flex-col">
             {restaurant && <Header title={restaurant.name} logoUrl={restaurant.logoUrl} />}
             <main className="flex-grow p-4 pb-20">
                 {ScreenComponent}
@@ -246,7 +245,9 @@ export default function App() {
 // --- Screens & Components ---
 
 const LoadingScreen = ({ message }) => (
-     <div className="flex items-center justify-center h-screen bg-gray-100"> <div className="text-xl font-semibold text-gray-700">{message}</div> </div>
+     <div className="flex items-center justify-center h-screen bg-[var(--background-primary)]"> 
+        <div className="text-xl font-semibold text-[var(--text-primary)]">{message}</div> 
+     </div>
 );
 
 const AuthScreen = ({}) => {
@@ -259,9 +260,9 @@ const AuthScreen = ({}) => {
         }
     };
     return (
-        <div className="flex flex-col items-center justify-center h-screen bg-white">
+        <div className="flex flex-col items-center justify-center h-screen bg-[var(--background-primary)]">
             <h1 className="text-4xl font-bold text-primary mb-2">SmartChef AI</h1>
-            <p className="text-gray-600 mb-8">Your AI-Powered Restaurant Assistant</p>
+            <p className="text-[var(--text-secondary)] mb-8">Your AI-Powered Restaurant Assistant</p>
             <button
                 onClick={signInWithGoogle}
                 className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300"
@@ -280,7 +281,7 @@ const Header = ({ title, logoUrl }) => (
         ) : (
              <div className="w-10 h-10 mr-3 flex-shrink-0"></div>
         )}
-        <h1 className="text-2xl font-bold text-gray-900 flex-grow truncate">{title}</h1>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] flex-grow truncate">{title}</h1>
     </div>
 );
 
@@ -395,7 +396,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
     return (
         <div>
             {/* Button Section */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4 space-y-3">
                 <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center">
                     <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span>
                 </button>
@@ -405,23 +406,23 @@ const DashboardScreen = ({ restaurant, userId }) => {
             </div>
 
             {/* Forecast Section */}
-            <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
-            {loading ? ( <p>Calculating predictions...</p> )
+            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-3">Tomorrow's Forecast</h2>
+            {loading ? ( <p className="text-[var(--text-secondary)]">Calculating predictions...</p> )
             : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error: </strong> <span className="block sm:inline">{predictionError}</span> </div> )
             : predictions.length > 0 ? (
                 <div className="space-y-3">
                     {predictions.map(item => (
-                        <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
-                            <h3 className="font-bold text-lg">{item.name}</h3>
-                            <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
-                            {item.wastage && ( <p className="text-yellow-600 font-semibold flex items-center mt-1"> <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%) </p> )}
+                        <div key={item.id} className="bg-[var(--background-secondary)] p-4 rounded-lg shadow relative">
+                            <h3 className="font-bold text-lg text-[var(--text-primary)]">{item.name}</h3>
+                            <p className="text-[var(--text-secondary)]">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
+                            {item.wastage && ( <p className="text-yellow-500 font-semibold flex items-center mt-1"> <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%) </p> )}
                         </div>
                     ))}
                 </div>
              ) : (
-                <div className="bg-white p-4 rounded-lg shadow text-center">
-                    <p className="text-gray-600">No predictions to show.</p>
-                    <p className="text-sm text-gray-500 mt-1">
+                <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow text-center">
+                    <p className="text-[var(--text-secondary)]">No predictions to show.</p>
+                    <p className="text-sm text-[var(--text-disabled)] mt-1">
                         {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."}
                     </p>
                 </div>
@@ -493,22 +494,22 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
-                 <div className="p-4 border-b"> <h2 className="text-xl font-bold">Enter Yesterday's Sales</h2> </div>
+            <div className="bg-[var(--background-secondary)] rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+                 <div className="p-4 border-b border-[var(--border-color)]"> <h2 className="text-xl font-bold text-[var(--text-primary)]">Enter Yesterday's Sales</h2> </div>
                  <div className="p-4 space-y-4 overflow-y-auto">
                     {(dishes || []).map(dish => (
-                        <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
-                            <p className="font-semibold text-gray-800">{dish.name}</p>
+                        <div key={dish.id} className="p-3 bg-[var(--background-primary)] rounded-md border border-[var(--border-color)]">
+                            <p className="font-semibold text-[var(--text-primary)]">{dish.name}</p>
                             <div className="flex items-center space-x-3 mt-2">
-                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Sold</label> <input type="number" min="0" value={salesData[dish.id]?.sold ?? ''} onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 25" /> </div>
-                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Wasted</label> <input type="number" min="0" value={salesData[dish.id]?.wasted ?? ''} onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 2" /> </div>
+                                <div className="flex-1"> <label className="text-sm text-[var(--text-secondary)]">Quantity Sold</label> <input type="number" min="0" value={salesData[dish.id]?.sold ?? ''} onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)} className="w-full mt-1 p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md" placeholder="e.g., 25" /> </div>
+                                <div className="flex-1"> <label className="text-sm text-[var(--text-secondary)]">Quantity Wasted</label> <input type="number" min="0" value={salesData[dish.id]?.wasted ?? ''} onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)} className="w-full mt-1 p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md" placeholder="e.g., 2" /> </div>
                             </div>
                         </div>
                     ))}
-                    {(!dishes || dishes.length === 0) && (<p className="text-gray-500 text-center">Please add some dishes in the Settings tab first.</p>)}
+                    {(!dishes || dishes.length === 0) && (<p className="text-[var(--text-secondary)] text-center">Please add some dishes in the Settings tab first.</p>)}
                  </div>
-                 <div className="p-4 border-t flex justify-end space-x-3">
-                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+                 <div className="p-4 border-t border-[var(--border-color)] flex justify-end space-x-3">
+                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-600 text-white rounded-md">Cancel</button>
                      <button onClick={handleSave} disabled={isSaving || !dishes || dishes.length === 0} className="px-4 py-2 bg-primary text-on-primary rounded-md disabled:opacity-50"> {isSaving ? 'Saving...' : 'Save'} </button>
                  </div>
             </div>
@@ -612,17 +613,17 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
     return (
         <div>
             <button onClick={addTestOrder} className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"> Add Test Order (Adds Points) </button>
-             {loading ? <p>Loading live orders...</p> : (
-                orders.length === 0 ? ( <p className="text-center text-gray-500 mt-8">No live orders yet.</p> )
+             {loading ? <p className="text-[var(--text-secondary)]">Loading live orders...</p> : (
+                orders.length === 0 ? ( <p className="text-center text-[var(--text-secondary)] mt-8">No live orders yet.</p> )
                 : ( <div className="space-y-3">
                      {orders.map(order => (
-                         <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+                         <div key={order.id} className="bg-[var(--background-secondary)] p-4 rounded-lg shadow">
                              <div className="flex justify-between items-center mb-2">
-                                <div> <h3 className="font-bold text-lg">{order.customerName}</h3> {order.customerPhone && <p className="text-sm text-gray-500">{order.customerPhone}</p>} </div>
+                                <div> <h3 className="font-bold text-lg text-[var(--text-primary)]">{order.customerName}</h3> {order.customerPhone && <p className="text-sm text-[var(--text-secondary)]">{order.customerPhone}</p>} </div>
                                 <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${ order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800' }`}> {order.status} </span>
                              </div>
-                             <ul className="list-disc list-inside text-gray-700 mb-2"> {(order.items || []).map((item, index) => ( <li key={`${item.name}-${index}`}>{item.quantity}x {item.name}</li> ))} </ul>
-                             <p className="font-bold text-right mb-3">Total: ₹{order.total}</p>
+                             <ul className="list-disc list-inside text-[var(--text-secondary)] mb-2"> {(order.items || []).map((item, index) => ( <li key={`${item.name}-${index}`}>{item.quantity}x {item.name}</li> ))} </ul>
+                             <p className="font-bold text-right mb-3 text-[var(--text-primary)]">Total: ₹{order.total}</p>
                              <div className="flex space-x-2">
                                 {order.status === 'pending' && ( <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button> )}
                                 {order.status === 'accepted' && ( <> <button className="w-1/2 bg-blue-500 text-white py-2 rounded-md">Book Delivery (WIP)</button> <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-1/2 bg-primary text-on-primary py-2 rounded-md">Mark Completed</button> </> )}
@@ -730,8 +731,8 @@ const MarketingScreen = ({ restaurant, userId }) => {
     return (
         <div>
             {/* Header rendered globally */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4">
-                <h3 className="font-bold text-lg mb-2">Create a New Post</h3>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Create a New Post</h3>
                 
                 <button
                     onClick={generatePostForToday}
@@ -742,8 +743,8 @@ const MarketingScreen = ({ restaurant, userId }) => {
                     Generate AI Post for Today
                 </button>
 
-                <div className="border-t pt-4">
-                    <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-1">
+                <div className="border-t border-[var(--border-color)] pt-4">
+                    <label htmlFor="topic" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                         Or enter a custom topic:
                     </label>
                     <input
@@ -752,16 +753,16 @@ const MarketingScreen = ({ restaurant, userId }) => {
                         value={topic}
                         onChange={(e) => setTopic(e.target.value)}
                         placeholder="E.g., Special offer on Biryani"
-                        className="w-full p-2 border rounded-md mb-3"
+                        className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md mb-3"
                     />
-                     <label htmlFor="platform" className="block text-sm font-medium text-gray-700 mb-1">
+                     <label htmlFor="platform" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
                         Platform
                     </label>
                     <select
                         id="platform"
                         value={platform}
                         onChange={(e) => setPlatform(e.target.value)}
-                        className="w-full p-2 border rounded-md bg-white mb-4"
+                        className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md mb-4"
                     >
                         <option value="Instagram">Instagram</option>
                         <option value="Facebook">Facebook</option>
@@ -779,11 +780,11 @@ const MarketingScreen = ({ restaurant, userId }) => {
             </div>
 
             {generatedPost && (
-                <div className="bg-white p-4 rounded-lg shadow">
-                    <h3 className="font-bold text-lg mb-2">Generated Post:</h3>
-                    <textarea value={generatedPost} onChange={(e) => setGeneratedPost(e.target.value)} className="w-full p-2 border rounded-md h-40 mb-3 bg-gray-50" readOnly={isLoading}/>
+                <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow">
+                    <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Generated Post:</h3>
+                    <textarea value={generatedPost} onChange={(e) => setGeneratedPost(e.target.value)} className="w-full p-2 border border-[var(--border-color)] rounded-md h-40 mb-3 bg-[var(--background-input)] text-[var(--text-primary)]" readOnly={isLoading}/>
                     <button onClick={copyToClipboard} className="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center"> <ClipboardIcon className="h-5 w-5 mr-2" /> Copy Post Text </button>
-                    <p className="text-xs text-gray-500 mt-2 text-center">You can edit the text above before copying.</p>
+                    <p className="text-xs text-[var(--text-disabled)] mt-2 text-center">You can edit the text above before copying.</p>
                 </div>
             )}
         </div>
@@ -887,7 +888,11 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         setError(''); // Clear previous errors
         try {
             // Fetch ALL feedback for the user
-            const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId));
+            const feedbackQuery = query(
+                collection(db, 'feedback'), 
+                where('userId', '==', userId),
+                limit(20) // Limit to last 20 to avoid large queries
+            );
             const querySnapshot = await getDocs(feedbackQuery);
 
             if (querySnapshot.empty) {
@@ -904,12 +909,9 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
 
             // Sort by createdAt timestamp, descending (newest first)
             feedbackList.sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0));
-
-            // Get the last 20
-            const recentFeedback = feedbackList.slice(0, 20);
-
+            
             let feedbackText = "Recent Customer Feedback:\n";
-            recentFeedback.forEach(data => {
+            feedbackList.forEach(data => { // Already limited by query
                 feedbackText += `- Rating: ${data.rating}/5, Comment: ${data.comment}\n`;
             });
             
@@ -924,7 +926,7 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
             }
         } catch (err) {
             console.error("Error generating feedback summary:", err);
-            setError("Failed to fetch or analyze feedback.");
+            setError("Failed to fetch or analyze feedback. Note: Firestore indexes may be required for complex queries.");
         } finally {
             setLoadingFeedback(false);
         }
@@ -965,42 +967,42 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         <div>
             {error && <p className="text-red-600 text-sm mb-3 bg-red-100 p-2 rounded">{error}</p>}
             {/* Sales Analysis Section */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4">
-                <h3 className="font-bold text-lg mb-2">AI Sales Analysis (Last 30 Days)</h3>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">AI Sales Analysis (Last 30 Days)</h3>
                 <button onClick={generateSalesAnalysis} disabled={loadingAnalysis} className="w-full bg-primary text-on-primary font-bold py-2 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50 mb-3">
                     {loadingAnalysis ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <BarChartIcon className="h-5 w-5 mr-2" />} {loadingAnalysis ? 'Analyzing Sales...' : 'Generate Sales Report & Recommendations'}
                 </button>
-                {salesAnalysis && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+                {salesAnalysis && ( <div className="mt-3 p-3 bg-[var(--background-primary)] border border-[var(--border-color)] rounded"> <pre className="whitespace-pre-wrap text-sm text-[var(--text-secondary)]">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
             </div>
             {/* Customer Feedback Section */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4">
-                 <h3 className="font-bold text-lg mb-2">AI Customer Feedback Summary</h3>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4">
+                 <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">AI Customer Feedback Summary</h3>
                  <div className="flex space-x-2 mb-3">
                      <button onClick={generateFeedbackSummary} disabled={loadingFeedback} className="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center disabled:opacity-50">
                          {loadingFeedback ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <MessageSquareIcon className="h-5 w-5 mr-2" />} {loadingFeedback ? 'Analyzing...' : 'Summarize Feedback'}
                      </button>
                      <button onClick={addTestFeedback} className="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-300 flex items-center justify-center"> <PlusIcon className="h-5 w-5 mr-2"/> Add Test Feedback </button>
                  </div>
-                 {feedbackSummary && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{feedbackSummary}</pre> <button onClick={() => sendInsightsToWhatsApp(feedbackSummary, "Feedback Summary")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
+                 {feedbackSummary && ( <div className="mt-3 p-3 bg-[var(--background-primary)] border border-[var(--border-color)] rounded"> <pre className="whitespace-pre-wrap text-sm text-[var(--text-secondary)]">{feedbackSummary}</pre> <button onClick={() => sendInsightsToWhatsApp(feedbackSummary, "Feedback Summary")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner via WhatsApp </button> </div> )}
             </div>
             
             {/* Customer Loyalty Section */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4">
-                <h3 className="font-bold text-lg mb-2">Customer Loyalty</h3>
-                {loadingCustomers ? <p>Loading customers...</p> : (
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Customer Loyalty</h3>
+                {loadingCustomers ? <p className="text-[var(--text-secondary)]">Loading customers...</p> : (
                     customers.length === 0 ? (
-                        <p className="text-center text-gray-500 mt-4">No customers captured yet.</p>
+                        <p className="text-center text-[var(--text-secondary)] mt-4">No customers captured yet.</p>
                     ) : (
-                        <div className="divide-y divide-gray-200 max-h-60 overflow-y-auto">
+                        <div className="divide-y divide-[var(--border-color)] max-h-60 overflow-y-auto">
                             {customers.map(cust => (
                                 <div key={cust.id} className="py-3">
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            <p className="font-semibold">{cust.name}</p>
-                                            <p className="text-sm text-gray-500">{cust.phone}</p>
+                                            <p className="font-semibold text-[var(--text-primary)]">{cust.name}</p>
+                                            <p className="text-sm text-[var(--text-secondary)]">{cust.phone}</p>
                                         </div>
                                         <div className="text-right">
-                                            <p className="font-semibold text-primary">{cust.loyaltyPoints || 0} <span className="text-sm text-gray-500">points</span></p>
+                                            <p className="font-semibold text-primary">{cust.loyaltyPoints || 0} <span className="text-sm text-[var(--text-secondary)]">points</span></p>
                                         </div>
                                     </div>
                                     <button
@@ -1017,22 +1019,22 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
             </div>
             
              {/* Vendor Management Placeholder */}
-            <div className="bg-white p-4 rounded-lg shadow text-center opacity-50">
-                 <h3 className="font-bold text-lg mb-2">AI Vendor Management (Coming Soon)</h3>
-                 <p className="text-sm text-gray-600"> Future Pro Feature: Track vendor quality and costs, get AI suggestions for better supplier management and cost optimization. </p>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow text-center opacity-50">
+                 <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">AI Vendor Management (Coming Soon)</h3>
+                 <p className="text-sm text-[var(--text-secondary)]"> Future Pro Feature: Track vendor quality and costs, get AI suggestions for better supplier management and cost optimization. </p>
             </div>
             
             {/* Offer Modal */}
             {offerModal.isOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
-                        <div className="p-4 border-b"> <h2 className="text-xl font-bold">Send Offer to {offerModal.customer?.name}</h2> </div>
+                    <div className="bg-[var(--background-secondary)] rounded-lg shadow-xl w-full max-w-md flex flex-col">
+                        <div className="p-4 border-b border-[var(--border-color)]"> <h2 className="text-xl font-bold text-[var(--text-primary)]">Send Offer to {offerModal.customer?.name}</h2> </div>
                         <div className="p-4 space-y-4 overflow-y-auto">
                             {loadingOffer ? ( <div className="flex justify-center items-center h-24"> <SpinnerIcon className="h-8 w-8 animate-spin text-primary" /> </div> )
-                            : ( <textarea value={offerModal.message} onChange={(e) => setOfferModal(prev => ({ ...prev, message: e.target.value }))} className="w-full p-2 border rounded-md h-32 bg-gray-50" /> )}
+                            : ( <textarea value={offerModal.message} onChange={(e) => setOfferModal(prev => ({ ...prev, message: e.target.value }))} className="w-full p-2 border border-[var(--border-color)] rounded-md h-32 bg-[var(--background-input)] text-[var(--text-primary)]" /> )}
                         </div>
-                        <div className="p-4 border-t flex justify-between space-x-3">
-                            <button onClick={() => setOfferModal({ isOpen: false, customer: null, message: '' })} disabled={loadingOffer} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+                        <div className="p-4 border-t border-[var(--border-color)] flex justify-between space-x-3">
+                            <button onClick={() => setOfferModal({ isOpen: false, customer: null, message: '' })} disabled={loadingOffer} className="px-4 py-2 bg-gray-600 text-white rounded-md">Cancel</button>
                             <button onClick={() => sendOfferToCustomer(offerModal.customer, offerModal.message)} disabled={loadingOffer} className="px-4 py-2 bg-green-500 text-white rounded-md flex items-center justify-center disabled:opacity-50"> <SendIcon className="h-5 w-5 mr-2" /> Send via WhatsApp </button>
                         </div>
                     </div>
@@ -1087,27 +1089,27 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     return (
         <div>
             {/* Header rendered globally */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4"> <p className="font-semibold">{user.displayName}</p> <p className="text-sm text-gray-500">{user.email}</p> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4"> <p className="font-semibold text-[var(--text-primary)]">{user.displayName}</p> <p className="text-sm text-[var(--text-secondary)]">{user.email}</p> </div>
             {/* Branding Section */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                 <h3 className="font-bold text-lg mb-1">Branding</h3>
-                 <div> <label htmlFor="logoUrl" className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label> <input type="url" id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-md"/> {logoUrl && <img src={logoUrl} alt="Preview" className="mt-2 h-10 w-auto rounded" onError={(e) => e.target.style.display='none'}/>} </div>
-                 <div> <label htmlFor="themeColor" className="block text-sm font-medium text-gray-700 mb-1">Theme Color</label> <div className="flex items-center space-x-2"> <input type="color" id="themeColor" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="p-1 h-10 w-10 block bg-white border rounded-lg cursor-pointer"/> <input type="text" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#4f46e5" className="w-full p-2 border rounded-md"/> </div> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1 text-[var(--text-primary)]">Branding</h3>
+                 <div> <label htmlFor="logoUrl" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Logo URL</label> <input type="url" id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> {logoUrl && <img src={logoUrl} alt="Preview" className="mt-2 h-10 w-auto rounded" onError={(e) => e.target.style.display='none'}/>} </div>
+                 <div> <label htmlFor="themeColor" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Theme Color</label> <div className="flex items-center space-x-2"> <input type="color" id="themeColor" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="p-1 h-10 w-10 block bg-white border rounded-lg cursor-pointer"/> <input type="text" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#4f46e5" className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> </div> </div>
             </div>
             {/* Restaurant Details */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                 <h3 className="font-bold text-lg mb-1">Details (for AI)</h3>
-                 <div> <label htmlFor="cuisineType" className="block text-sm font-medium text-gray-700 mb-1">Cuisine</label> <input type="text" id="cuisineType" value={cuisineType} onChange={(e) => setCuisineType(e.target.value)} placeholder="e.g., South Indian" className="w-full p-2 border rounded-md"/> </div>
-                 <div> <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">Customers</label> <input type="text" id="targetAudience" value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="e.g., Families" className="w-full p-2 border rounded-md"/> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1 text-[var(--text-primary)]">Details (for AI)</h3>
+                 <div> <label htmlFor="cuisineType" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Cuisine</label> <input type="text" id="cuisineType" value={cuisineType} onChange={(e) => setCuisineType(e.target.value)} placeholder="e.g., South Indian" className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> </div>
+                 <div> <label htmlFor="targetAudience" className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Customers</label> <input type="text" id="targetAudience" value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="e.g., Families" className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> </div>
             </div>
             {/* WhatsApp */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">WhatsApp</h3> <p className="text-sm text-gray-600 mb-2">Your number (with country code) for reports.</p> <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g., 919876543210" className="w-full p-2 border rounded-md"/> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">WhatsApp</h3> <p className="text-sm text-[var(--text-secondary)] mb-2">Your number (with country code) for reports.</p> <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g., 919876543210" className="w-full p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> </div>
             {/* Dishes */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md"> <span>{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-[var(--background-primary)] p-2 rounded-md border border-[var(--border-color)]"> <span className="text-[var(--text-secondary)]">{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border border-[var(--border-color)] bg-[var(--background-input)] text-[var(--text-primary)] rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
             <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
             {/* QR Codes */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> D</div>
-            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md bg-white"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-[var(--text-disabled)] mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
+            <div className="bg-[var(--background-secondary)] p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2 text-[var(--text-primary)]">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md bg-white"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-[var(--text-disabled)] mb-3">Place on tables/receipts.</p> </div>
             {/* Sign Out */}
             <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
         </div>
@@ -1116,12 +1118,12 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
 
 
 const ProFeatureLock = ({ title, description }) => (
-     <div>
+     <div className="mt-4">
         {/* Header is rendered globally */}
-        <div className="bg-white p-6 rounded-lg shadow text-center mt-4">
+        <div className="bg-[var(--background-secondary)] p-6 rounded-lg shadow text-center">
             <LockIcon className="h-12 w-12 text-primary mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-gray-800 mb-2">This is a Pro Feature</h2>
-            <p className="text-gray-600 mb-6">{description}</p>
+            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">This is a Pro Feature</h2>
+            <p className="text-[var(--text-secondary)] mb-6">{description}</p>
             <button className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300">
                 Upgrade to Pro
             </button>
@@ -1139,19 +1141,19 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro, themeColor }) => {
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
     return (
-         <div className="bg-white shadow-t sticky bottom-0 border-t z-10">
+         <div className="bg-[var(--background-secondary)] shadow-t sticky bottom-0 border-t border-[var(--border-color)] z-10">
             <div className="flex justify-around">
                 {navItems.map(item => (
                     <button
                         key={item.id}
                         onClick={() => setActiveScreen(item.id)}
                         className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition duration-300 ${
-                            activeScreen === item.id ? 'text-primary' : 'text-gray-500 hover:text-primary'
+                            activeScreen === item.id ? 'text-primary' : 'text-[var(--text-disabled)] hover:text-primary'
                         }`}
                         disabled={item.pro && !isPro}
                     >
-                         <div className="relative"> {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />} <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isZPro ? 'text-gray-300' : ''}`} /> </div>
-                         <span className={`text-xs ${item.pro && !isPro ? 'text-gray-300' : ''}`}>{item.label}</span>
+                         <div className="relative"> {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-600" />} <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isPro ? 'text-gray-700' : ''}`} /> </div>
+                         <span className={`text-xs ${item.pro && !isPro ? 'text-gray-700' : ''}`}>{item.label}</span>
                     </button>
                 ))}
             </div>
