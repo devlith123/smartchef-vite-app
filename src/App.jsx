@@ -790,6 +790,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
 };
 
 
+// ** FIX: Restored AIInsightsScreen implementation **
 const AIInsightsScreen = ({ restaurant, userId }) => {
     const [salesAnalysis, setSalesAnalysis] = useState('');
     const [feedbackSummary, setFeedbackSummary] = useState('');
@@ -803,14 +804,18 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
 
     useEffect(() => {
         setLoadingCustomers(true);
+        // ** FIX: Removed orderBy to avoid index requirement **
         const customersQuery = query(
             collection(db, 'customers'),
-            where('userId', '==', userId),
-            orderBy('lastOrderAt', 'desc')
+            where('userId', '==', userId)
         );
         const unsubscribe = onSnapshot(customersQuery, (querySnapshot) => {
             const customerList = [];
             querySnapshot.forEach((doc) => customerList.push({ id: doc.id, ...doc.data() }));
+            
+            // ** FIX: Sort in JavaScript **
+            customerList.sort((a, b) => (b.lastOrderAt?.toDate() || 0) - (a.lastOrderAt?.toDate() || 0));
+
             setCustomers(customerList);
             setLoadingCustomers(false);
         }, (error) => {
@@ -859,24 +864,53 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
             let dataSummary = "Last 30 Days Sales Data:\n";
             Object.values(salesSummary).forEach(item => { const prepared = item.sold + item.wasted; const wastagePerc = prepared > 0 ? Math.round((item.wasted / prepared) * 100) : 0; dataSummary += `- ${item.name}: Sold ${item.sold}, Wasted ${item.wasted} (${wastagePerc}% wastage)\n`; });
             if (querySnapshot.empty) dataSummary = "No sales data found for the last 30 days.";
-            const systemPrompt = `You are a helpful AI assistant for restaurant owners...`; // (Full prompt)
-            const userQuery = `Analyze...:\n\n${dataSummary}`;
+            const systemPrompt = `You are a helpful AI assistant for restaurant owners, analyzing sales data to provide actionable advice. Be concise, positive, and focus on practical recommendations. Restaurant Name: ${restaurant.name}. Cuisine: ${restaurant.cuisineType || 'various'}.`;
+            const userQuery = `Analyze the following sales data summary and provide 3-5 bullet points with specific recommendations for improving revenue and reducing costs/wastage:\n\n${dataSummary}`;
             const analysisResult = await callGeminiAPI(systemPrompt, userQuery);
             if (analysisResult) setSalesAnalysis(analysisResult);
         } catch (err) { console.error("Error generating sales analysis:", err); setError("Failed to fetch/analyze sales data."); }
         finally { setLoadingAnalysis(false); }
     };
 
-    const addTestFeedback = async () => { /* ... unchanged ... */ };
-    const generateFeedbackSummary = async () => { /* ... unchanged ... */ };
-    const sendInsightsToWhatsApp = (reportContent, reportType) => { /* ... unchanged ... */ };
+    const addTestFeedback = async () => {
+        const testFeedbacks = [ { rating: 5, comment: "The Biryani was amazing! Best I've had in ages." }, { rating: 4, comment: "Good food, but the service was a bit slow during peak hours." }, { rating: 3, comment: "Paneer Butter Masala was too sweet for my liking." }, { rating: 5, comment: "Loved the ambience and the quick delivery." }, { rating: 2, comment: "The Masala Dosa was cold when it arrived." } ];
+        const randomFeedback = testFeedbacks[Math.floor(Math.random() * testFeedbacks.length)];
+        try { await addDoc(collection(db, 'feedback'), { userId: userId, rating: randomFeedback.rating, comment: randomFeedback.comment, createdAt: Timestamp.now(), source: 'Test Data' }); alert("Test feedback added!"); }
+        catch (error) { console.error("Error adding test feedback:", error); alert("Failed to add test feedback."); }
+    };
+    
+    const generateFeedbackSummary = async () => {
+        setLoadingFeedback(true);
+        setFeedbackSummary('');
+        try {
+            const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId), orderBy('createdAt', 'desc'), limit(20));
+            const querySnapshot = await getDocs(feedbackQuery);
+            if (querySnapshot.empty) { setFeedbackSummary("No recent customer feedback found."); setLoadingFeedback(false); return; }
+            let feedbackText = "Recent Customer Feedback:\n";
+            querySnapshot.forEach(doc => { const data = doc.data(); feedbackText += `- Rating: ${data.rating}/5, Comment: ${data.comment}\n`; });
+            const systemPrompt = `You are an AI assistant helping a restaurant owner understand customer feedback. Summarize the key positive themes, negative themes, and provide 3 actionable suggestions for improvement based ONLY on the feedback provided. Be concise and constructive. Restaurant Name: ${restaurant.name}.`;
+            const userQuery = `Summarize the following customer feedback and provide actionable suggestions:\n\n${feedbackText}`;
+            const summaryResult = await callGeminiAPI(systemPrompt, userQuery);
+            if (summaryResult) setFeedbackSummary(summaryResult);
+        } catch (err) { console.error("Error generating feedback summary:", err); setError("Failed to fetch or analyze feedback."); }
+        finally { setLoadingFeedback(false); }
+    };
+    
+    const sendInsightsToWhatsApp = (reportContent, reportType) => {
+        if (!restaurant.phone) { alert("Please add your WhatsApp phone number in the Settings tab first."); return; }
+        if (!reportContent) { alert("No report generated yet."); return; }
+        const message = `*SmartChef AI - ${reportType} Report*\n\n${reportContent}`;
+        const encodedText = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
+        window.open(whatsappUrl, '_blank');
+    };
 
     const handleGenerateOffer = async (customer) => {
         setLoadingOffer(true);
         setOfferModal({ isOpen: true, customer, message: 'Generating offer...' });
         const systemPrompt = `You are a friendly restaurant marketing assistant for ${restaurant.name}. Write a short, personalized WhatsApp message to a loyal customer, ${customer.name}. Offer them a 10% discount on their next order as a thank you. Keep it casual and warm. Mention their loyalty points if they have any.`;
         const userQuery = `Generate the offer message for ${customer.name}. They have ${customer.loyaltyPoints || 0} points.`;
-        const result = await callGeminiAPI(systemPrompt, userQuery); // Re-use callGeminiAPI
+        const result = await callGeminiAPI(systemPrompt, userQuery);
         if (result) {
             setOfferModal({ isOpen: true, customer, message: result });
         } else {
@@ -890,7 +924,7 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         const encodedText = encodeURIComponent(message);
         const whatsappUrl = `https://wa.me/${customer.phone}?text=${encodedText}`;
         window.open(whatsappUrl, '_blank');
-        setOfferModal({ isOpen: false, customer: null, message: '' }); // Close modal
+        setOfferModal({ isOpen: false, customer: null, message: '' });
     };
 
      return (
@@ -975,6 +1009,7 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
 };
 
 
+// ** FIX: Restored SettingsScreen implementation **
 const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     if (!user) return <LoadingScreen message="Waiting for user data..." />;
     const [dishes, setDishes] = useState(restaurant.dishes || []);
@@ -1017,7 +1052,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
 
     return (
         <div>
-            {/* ... (All settings sections unchanged) ... */}
+            {/* Header rendered globally */}
             <div className="bg-white p-4 rounded-lg shadow mb-4"> <p className="font-semibold">{user.displayName}</p> <p className="text-sm text-gray-500">{user.email}</p> </div>
             {/* Branding Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
@@ -1081,7 +1116,7 @@ const BottomNavBar = ({ activeScreen, setActiveScreen, isPro, themeColor }) => {
                         }`}
                         disabled={item.pro && !isPro}
                     >
-                         <div className="relative"> {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />} <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isPro ? 'text-gray-300' : ''}`} /> </div>
+                         <div className="relative"> {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />} <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isZPro ? 'text-gray-300' : ''}`} /> </div>
                          <span className={`text-xs ${item.pro && !isPro ? 'text-gray-300' : ''}`}>{item.label}</span>
                     </button>
                 ))}
