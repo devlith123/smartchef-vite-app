@@ -1,22 +1,34 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { 
-    getAuth, 
-    onAuthStateChanged, 
-    signOut,
+import {
+    getAuth,
     GoogleAuthProvider,
-    signInWithPopup
+    signInWithPopup,
+    onAuthStateChanged,
+    signOut
 } from 'firebase/auth';
-import { 
-    getFirestore, 
-    doc, 
-    setDoc, 
-    getDoc, 
-    Timestamp
+import {
+    getFirestore,
+    doc,
+    setDoc,
+    getDoc,
+    updateDoc,
+    collection,
+    writeBatch,
+    query,
+    where,
+    getDocs,
+    onSnapshot,
+    addDoc,
+    Timestamp,
+    orderBy,
+    limit,
+    increment,
+    runTransaction
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// IMPORTANT: Replace this with your own Firebase project configuration.
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -28,483 +40,1003 @@ const firebaseConfig = {
 };
 
 // --- Initialize Firebase ---
-let app, auth, db;
-try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-} catch (error) {
-    console.error("Firebase initialization error:", error);
-}
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// --- SVG ICONS ---
-const ChefHatIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 17.5a2.5 2.5 0 0 1 5 0Z"/><path d="M10 15.5a2.5 2.5 0 0 1 5 0v-2.5a2.5 2.5 0 0 1-5 0v2.5Z"/><path d="M2 13h20a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M12 2a4 4 0 0 0-4 4v2a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4Z"/></svg>;
-const ChartIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>;
-const ShoppingCartIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>;
-const SettingsIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1 0-2l.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>;
-const PlusIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
-const EditIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>;
-const CheckCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>;
-const TruckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="3" width="15" height="13" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>;
-const XCircleIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>;
-const LogoutIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>;
-const GoogleIcon = () => <svg viewBox="0 0 48 48" width="24" height="24"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.222,0-9.552-3.443-11.179-8.169l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C42.022,36.218,44,30.551,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>;
+// --- Helper Functions ---
+const formatDate = (date) => {
+    if (!date || typeof date.toDate !== 'function') return 'Invalid Date';
+    const d = date.toDate();
+    return d.toISOString().split('T')[0];
+};
 
-// --- MOCK DATA (for initial UI dev and fallback) ---
-const MOCK_PREDICTIONS = [
-    { id: 'd1', name: 'Chicken Biryani', prediction: 22, confidence: 92, wastageAlert: true },
-    { id: 'd2', name: 'Paneer Butter Masala', prediction: 12, confidence: 85, wastageAlert: false },
-    { id: 'd3', name: 'Masala Dosa', prediction: 40, confidence: 95, wastageAlert: false },
-];
-const MOCK_ORDERS = [
-    { id: 'o1', customerName: 'Ravi Kumar', total: 450, items: [{name: 'Chicken Biryani', qty: 2}], status: 'pending' },
-    { id: 'o2', customerName: 'Priya Sharma', total: 720, items: [{name: 'Paneer Butter Masala', qty: 3}], status: 'accepted' },
-];
+// --- Theme Application ---
+const applyTheme = (color) => {
+    const hexColorRegex = /^#([0-9A-F]{3}){1,2}$/i;
+    const validColor = hexColorRegex.test(color) ? color : '#4f46e5';
+    document.documentElement.style.setProperty('--primary-color', validColor);
 
-// --- MAIN APP COMPONENT ---
+    const calculateLuminance = (hex) => {
+        try {
+            const rgb = parseInt(hex.slice(1), 16);
+            const r = (rgb >> 16) & 0xff;
+            const g = (rgb >> 8) & 0xff;
+            const b = (rgb >> 0) & 0xff;
+            const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            return luminance;
+        } catch (e) {
+            return 0; // Default to dark background luminance on error
+        }
+     };
+    const luminance = calculateLuminance(validColor);
+    const textColor = luminance > 0.5 ? '#000000' : '#FFFFFF';
+    document.documentElement.style.setProperty('--primary-text-color', textColor);
+
+    const darkenColor = (hex, amount) => {
+       try {
+            let color = hex.startsWith('#') ? hex.slice(1) : hex;
+            let num = parseInt(color, 16);
+            let r = (num >> 16) - amount;
+            let g = ((num >> 8) & 0x00FF) - amount;
+            let b = (num & 0x0000FF) - amount;
+            r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
+            return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
+        } catch (e) {
+            return validColor; // Return original valid color on error
+        }
+     };
+    const hoverColor = darkenColor(validColor, 20);
+    document.documentElement.style.setProperty('--primary-hover-color', hoverColor);
+};
+
+// --- Main App Component ---
 export default function App() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [restaurant, setRestaurant] = useState(null);
-    const [currentScreen, setCurrentScreen] = useState('dashboard');
+    const [activeScreen, setActiveScreen] = useState('dashboard');
+    const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false);
 
-    useEffect(() => {
-        if (!auth) {
-            setLoading(false);
-            return;
-        }
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                setUser(user);
-                const restaurantDocRef = doc(db, "restaurants", user.uid);
-                const restaurantDoc = await getDoc(restaurantDocRef);
-                if (restaurantDoc.exists()) {
-                    setRestaurant({ id: user.uid, ...restaurantDoc.data() });
-                } else {
-                    const newRestaurantProfile = { 
-                        id: user.uid, 
-                        name: user.displayName ? `${user.displayName}'s Place` : "My Restaurant", 
-                        dishes: [], 
-                        subscription: "basic" 
-                    };
-                    await setDoc(restaurantDocRef, newRestaurantProfile);
-                    setRestaurant(newRestaurantProfile);
-                }
-            } else {
-                setUser(null);
-                setRestaurant(null);
-            }
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
+    const fetchRestaurantData = useCallback(async (currentUser) => {
+        console.log("fetchRestaurantData start for user:", currentUser?.uid || "null");
 
-    const handleLogout = async () => {
-        if (!auth) return;
-        try {
-            await signOut(auth);
+        if (!currentUser) {
             setUser(null);
             setRestaurant(null);
-            setCurrentScreen('dashboard');
-        } catch (error) {
-            console.error("Error signing out:", error);
+            setActiveScreen('dashboard');
+            applyTheme('#4f46e5');
+            setInitialAuthCheckComplete(true);
+            return;
         }
-    };
-    
-    if (loading) {
-        return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-xl font-semibold">Loading SmartChef AI...</div></div>;
+
+        try {
+            const restaurantRef = doc(db, 'restaurants', currentUser.uid);
+            const docSnap = await getDoc(restaurantRef);
+            let restData;
+            if (docSnap.exists()) {
+                 const data = docSnap.data();
+                 restData = {
+                    ...data,
+                    cuisineType: data.cuisineType || '', targetAudience: data.targetAudience || '',
+                    dishes: data.dishes || [], phone: data.phone || '', logoUrl: data.logoUrl || '',
+                    themeColor: data.themeColor || '#4f46e5',
+                    // ** NEW: Default Food Cost % **
+                    foodCostPercent: data.foodCostPercent || 35, 
+                 };
+            } else {
+                restData = {
+                    owner: currentUser.displayName || 'Restaurant Owner', name: `${currentUser.displayName || 'My'}'s Place`,
+                    subscription: 'free',
+                    dishes: [{ id: 'dish1', name: 'Chicken Biryani' }, { id: 'dish2', name: 'Paneer Butter Masala' }, { id: 'dish3', name: 'Masala Dosa' }],
+                    phone: '', cuisineType: '', targetAudience: '', logoUrl: '', themeColor: '#4f46e5',
+                    foodCostPercent: 35, // Default average food cost
+                    createdAt: Timestamp.now(),
+                };
+                await setDoc(restaurantRef, restData);
+            }
+            applyTheme(restData.themeColor);
+            setRestaurant(restData);
+            setUser(currentUser);
+        } catch (error) {
+            console.error("CRITICAL: Error in fetchRestaurantData:", error);
+            setUser(null);
+            setRestaurant(null);
+            applyTheme('#4f46e5');
+        } finally {
+            setInitialAuthCheckComplete(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        setLoading(true);
+        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+            setInitialAuthCheckComplete(false);
+            setUser(null);
+            setRestaurant(null);
+            fetchRestaurantData(firebaseUser).finally(() => {
+                setLoading(false);
+            });
+        });
+        return () => unsubscribe();
+    }, [fetchRestaurantData]);
+
+
+    const updateRestaurant = (newData) => {
+        const updatedRestaurant = { ...restaurant, ...newData };
+        setRestaurant(updatedRestaurant);
+        if (newData.themeColor) {
+             applyTheme(newData.themeColor);
+        }
+     };
+
+    useEffect(() => {
+        const styleId = 'dynamic-theme-styles';
+        let style = document.getElementById(styleId);
+        if (!style) {
+            style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                :root {
+                    --primary-color: #4f46e5;
+                    --primary-hover-color: #4338ca;
+                    --primary-text-color: #ffffff;
+                }
+                .bg-primary { background-color: var(--primary-color); }
+                .text-primary { color: var(--primary-color); }
+                .border-primary { border-color: var(--primary-color); }
+                .hover\\:bg-primary-hover:hover { background-color: var(--primary-hover-color); }
+                .ring-primary:focus { --tw-ring-color: var(--primary-color); }
+                .text-on-primary { color: var(--primary-text-color); }
+            `;
+            document.head.appendChild(style);
+        }
+        applyTheme(restaurant?.themeColor || '#4f46e5');
+    }, [restaurant?.themeColor]);
+
+    if (loading || !initialAuthCheckComplete) {
+         return <LoadingScreen message="Loading SmartChef AI..." />;
     }
 
     if (!user) {
-        return <AuthScreen />;
+         return <AuthScreen />;
     }
 
-    // FIX: Add a loading state for the restaurant data to prevent rendering with null props.
     if (!restaurant) {
-        return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-xl font-semibold">Loading Restaurant...</div></div>;
+         return <LoadingScreen message="Error loading restaurant data. Please refresh." />;
     }
 
     const ScreenComponent = {
-        dashboard: <DashboardScreen restaurant={restaurant} />,
-        orders: <LiveOrdersScreen restaurant={restaurant} />,
-        reports: <ReportsScreen restaurant={restaurant} />,
-        settings: <SettingsScreen restaurant={restaurant} setRestaurant={setRestaurant} handleLogout={handleLogout}/>,
-    }[currentScreen];
+        dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
+        marketing: <MarketingScreen restaurant={restaurant} userId={user.uid}/>,
+        orders: <LiveOrdersScreen restaurant={restaurant} userId={user.uid} />,
+        inventory: <InventoryScreen restaurant={restaurant} userId={user.uid} />,
+        insights: <AIInsightsScreen restaurant={restaurant} userId={user.uid} />, // Updated with Growth Features
+        settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
+    }[activeScreen];
 
     return (
-        <div className="h-screen w-screen bg-gray-50 font-sans flex flex-col md:max-w-sm md:mx-auto md:shadow-2xl">
-            <header className="bg-white p-4 border-b border-gray-200 shadow-sm">
-                <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                    <ChefHatIcon />
-                    {restaurant?.name || 'SmartChef AI'}
-                </h1>
-            </header>
-            <main className="flex-grow overflow-y-auto p-4">
+        <div className="md:max-w-sm md:mx-auto bg-gray-100 min-h-screen font-sans flex flex-col">
+            {restaurant && <Header title={restaurant.name} logoUrl={restaurant.logoUrl} />}
+            <main className="flex-grow p-4 pb-20">
                 {ScreenComponent}
             </main>
-            <BottomNavBar currentScreen={currentScreen} setCurrentScreen={setCurrentScreen} restaurant={restaurant} />
+            {restaurant && <BottomNavBar activeScreen={activeScreen} setActiveScreen={setActiveScreen} isPro={restaurant.subscription === 'pro'} themeColor={restaurant.themeColor}/>}
         </div>
     );
 }
 
-// --- AUTHENTICATION SCREEN ---
-function AuthScreen() {
-    const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
+// --- Screens & Components ---
 
-    const handleGoogleSignIn = async () => {
-        if (!auth) {
-            setError("Firebase not initialized.");
-            return;
-        }
-        setLoading(true);
-        setError('');
+const LoadingScreen = ({ message }) => (
+     <div className="flex items-center justify-center h-screen bg-gray-100"> <div className="text-xl font-semibold text-gray-700">{message}</div> </div>
+);
+
+const AuthScreen = ({}) => {
+     const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
-            const result = await signInWithPopup(auth, provider);
-            const user = result.user;
-            
-            const restaurantDocRef = doc(db, "restaurants", user.uid);
-            const restaurantDoc = await getDoc(restaurantDocRef);
+            await signInWithPopup(auth, provider);
+        } catch (error) {
+            console.error("Error signing in with Google", error);
+        }
+    };
+    return (
+        <div className="flex flex-col items-center justify-center h-screen bg-white">
+            <h1 className="text-4xl font-bold text-primary mb-2">SmartChef AI</h1>
+            <p className="text-gray-600 mb-8">Your AI-Powered Restaurant Assistant</p>
+            <button
+                onClick={signInWithGoogle}
+                className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300"
+            >
+                <svg className="w-6 h-6 mr-2" viewBox="0 0 48 48"> <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path> </svg>
+                Sign in with Google
+            </button>
+        </div>
+     );
+};
 
-            if (!restaurantDoc.exists()) {
-                await setDoc(restaurantDocRef, {
-                    name: user.displayName ? `${user.displayName}'s Place` : "My New Restaurant",
-                    dishes: [],
-                    subscription: "basic",
-                    createdAt: Timestamp.now(),
+const Header = ({ title, logoUrl }) => (
+    <div className="flex items-center justify-between mb-4 px-4 pt-4">
+        {logoUrl ? (
+            <img src={logoUrl} alt={`${title} logo`} className="h-10 w-auto mr-3 rounded" onError={(e) => {e.target.style.display='none'; e.target.onerror=null;}}/>
+        ) : (
+             <div className="w-10 h-10 mr-3 flex-shrink-0"></div>
+        )}
+        <h1 className="text-2xl font-bold text-gray-900 flex-grow truncate">{title}</h1>
+    </div>
+);
+
+
+const DashboardScreen = ({ restaurant, userId }) => {
+    const currentUserId = userId;
+    const currentDishes = restaurant?.dishes || [];
+
+    const [isSalesModalOpen, setSalesModalOpen] = useState(false);
+    const [predictions, setPredictions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [predictionError, setPredictionError] = useState('');
+    const [lowStockItems, setLowStockItems] = useState([]);
+
+    const calculatePredictions = useCallback(async () => {
+        setLoading(true);
+        setPredictionError('');
+        setPredictions([]);
+        if (!currentUserId || !currentDishes || currentDishes.length === 0) {
+            setLoading(false);
+            return;
+        }
+        try {
+            const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgoMillis = Timestamp.fromDate(sevenDaysAgo).toMillis();
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', currentUserId));
+            const querySnapshot = await getDocs(salesQuery);
+            const salesData = {};
+            currentDishes.forEach(d => salesData[d.id] = []);
+            querySnapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.date?.toMillis && data.date.toMillis() >= sevenDaysAgoMillis && salesData[data.dishId] && typeof data.quantitySold === 'number') {
+                    salesData[data.dishId].push(data);
+                }
+            });
+            const hasSalesData = Object.values(salesData).some(arr => arr.length > 0);
+            if (hasSalesData) {
+                const newPredictions = currentDishes.map(dish => {
+                    const dishSales = salesData[dish.id];
+                    let prediction = 5, confidence = 20, totalSold = 0, totalWasted = 0;
+                    if (dishSales && dishSales.length > 0) {
+                        const sum = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
+                        prediction = Math.max(0, Math.round(sum / dishSales.length));
+                        confidence = Math.min(95, 20 + dishSales.length * 10);
+                        totalSold = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
+                        totalWasted = dishSales.reduce((acc, curr) => acc + (curr.quantityWasted || 0), 0);
+                    }
+                    const totalPrepared = totalSold + totalWasted;
+                    const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
+                    return { id: dish.id, name: dish.name, prediction, confidence, wastage: wastagePercent > 15, wastagePercent };
                 });
+                setPredictions(newPredictions);
             }
-        } catch (err) {
-            setError(err.message);
+        } catch (error) {
+            console.error("Dashboard: Failed to calculate predictions:", error);
+            setPredictionError("Error calculating predictions.");
         } finally {
             setLoading(false);
         }
-    };
-
-    return (
-        <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
-            <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-                <div className="flex justify-center mb-6">
-                    <div className="bg-indigo-600 text-white p-3 rounded-full">
-                        <ChefHatIcon />
-                    </div>
-                </div>
-                <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">Welcome to SmartChef AI</h2>
-                <p className="text-center text-gray-500 mb-8">Sign in to manage your restaurant.</p>
-                {error && <p className="text-red-500 text-xs italic mb-4 text-center">{error}</p>}
-                <button 
-                    onClick={handleGoogleSignIn}
-                    disabled={loading} 
-                    className="w-full bg-white border border-gray-300 text-gray-700 font-bold py-3 px-4 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 disabled:bg-gray-200 flex items-center justify-center gap-3 transition-colors"
-                >
-                    <GoogleIcon />
-                    {loading ? "Signing in..." : "Sign in with Google"}
-                </button>
-            </div>
-        </div>
-    );
-}
-
-// --- DASHBOARD SCREEN ---
-function DashboardScreen({ restaurant }) {
-    const [showDataEntry, setShowDataEntry] = useState(false);
-    const [showEditModal, setShowEditModal] = useState(null);
-    const [predictions, setPredictions] = useState(MOCK_PREDICTIONS);
-
-    return (
-        <div className="space-y-6">
-            <div>
-                <button 
-                    onClick={() => setShowDataEntry(true)}
-                    className="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex items-center justify-center gap-2"
-                >
-                    <PlusIcon /> Enter Yesterday's Sales
-                </button>
-            </div>
-            <div>
-                <h2 className="text-lg font-bold text-gray-700 mb-3">Tomorrow's Forecast</h2>
-                <div className="space-y-3">
-                    {predictions.map(dish => (
-                        <div key={dish.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex items-center justify-between">
-                            <div>
-                                <p className="font-semibold text-gray-800">{dish.name}</p>
-                                <p className="text-sm text-gray-500">
-                                    Prediction: <span className="font-bold text-indigo-600">{dish.prediction} plates</span> (Confidence: {dish.confidence}%)
-                                </p>
-                                {dish.wastageAlert && <p className="text-xs text-red-500 font-semibold mt-1">⚠️ High wastage last week!</p>}
-                            </div>
-                            <button onClick={() => setShowEditModal(dish)} className="p-2 text-gray-500 hover:text-indigo-600">
-                                <EditIcon />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            </div>
-            {showDataEntry && <DailyDataEntryScreen restaurant={restaurant} onClose={() => setShowDataEntry(false)} />}
-            {showEditModal && <EditForecastModal dish={showEditModal} onClose={() => setShowEditModal(null)} onUpdate={() => setShowEditModal(null)} />}
-        </div>
-    );
-}
-
-// --- DAILY DATA ENTRY MODAL ---
-function DailyDataEntryScreen({ restaurant, onClose }) {
-    const [salesData, setSalesData] = useState({});
+    }, [userId, restaurant.dishes]);
 
     useEffect(() => {
-        const initialData = {};
-        restaurant.dishes.forEach(dish => {
-            initialData[dish.id] = { sold: '', wasted: '' };
+        if (!userId) return;
+        const inventoryQuery = query(collection(db, 'inventory'), where('userId', '==', userId));
+        const unsubscribe = onSnapshot(inventoryQuery, (querySnapshot) => {
+            const lowItems = [];
+            querySnapshot.forEach((doc) => {
+                const item = doc.data();
+                if (item.currentStock <= item.lowStockThreshold) {
+                    lowItems.push(item);
+                }
+            });
+            setLowStockItems(lowItems);
+        }, (error) => {
+             console.error("Error fetching low stock items:", error);
         });
-        setSalesData(initialData);
-    }, [restaurant.dishes]);
-    
-    const handleInputChange = (dishId, field, value) => {
-        setSalesData(prev => ({ ...prev, [dishId]: { ...prev[dishId], [field]: value } }));
+        return () => unsubscribe();
+    }, [userId]);
+
+    useEffect(() => {
+        calculatePredictions();
+    }, [calculatePredictions]);
+
+    const sendWhatsAppReport = () => {
+        if (!restaurant.phone) { alert("Please add your WhatsApp phone number in the Settings tab first."); return; }
+        let reportText = `*SmartChef AI - Tomorrow's Forecast*\n\n`;
+        predictions.forEach(item => {
+            reportText += `*${item.name}*: ${item.prediction} plates\n`;
+            if (item.wastage) { reportText += `_⚠️ High Wastage Alert (${item.wastagePercent}%)_\n`; }
+        });
+        reportText += `\nReply with corrections if needed (e.g., Biryani 25, Paneer 15)`;
+        const encodedText = encodeURIComponent(reportText);
+        const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
+        window.location.href = whatsappUrl;
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        alert("Sales data submitted! Your new forecast will be ready shortly.");
-        onClose();
-    };
+    if (!restaurant) return <LoadingScreen message="Loading restaurant data..." />;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
-                <div className="p-4 border-b">
-                    <h3 className="text-lg font-bold text-gray-800">Enter Daily Sales</h3>
-                    <p className="text-sm text-gray-500">For yesterday: {new Date(Date.now() - 864e5).toLocaleDateString()}</p>
-                </div>
-                <form onSubmit={handleSubmit} className="overflow-y-auto p-4 flex-grow">
-                    <div className="space-y-4">
-                        {(restaurant.dishes || []).map(dish => (
-                            <div key={dish.id} className="p-3 border rounded-lg">
-                                <p className="font-semibold text-gray-700 mb-2">{dish.name}</p>
-                                <div className="flex gap-4">
-                                    <div className="flex-1">
-                                        <label className="block text-xs text-gray-600 mb-1">Quantity Sold</label>
-                                        <input type="number" className="w-full px-2 py-1 border border-gray-300 rounded-md" value={salesData[dish.id]?.sold || ''} onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)} placeholder="e.g., 25" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <label className="block text-xs text-gray-600 mb-1">Quantity Wasted</label>
-                                        <input type="number" className="w-full px-2 py-1 border border-gray-300 rounded-md" value={salesData[dish.id]?.wasted || ''} onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)} placeholder="e.g., 2" />
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </form>
-                <div className="p-4 border-t flex gap-3">
-                    <button onClick={onClose} className="w-full bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
-                    <button onClick={handleSubmit} className="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700">Submit</button>
-                </div>
+        <div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center">
+                    <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span>
+                </button>
+                <button onClick={sendWhatsAppReport} disabled={loading || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                    <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span>
+                </button>
             </div>
-        </div>
-    );
-}
-
-// --- EDIT FORECAST MODAL ---
-function EditForecastModal({ dish, onClose, onUpdate }) {
-    const [feedback, setFeedback] = useState(dish.prediction);
-    const blendedForecast = useMemo(() => Math.round(dish.prediction * 0.7 + Number(feedback) * 0.3), [dish.prediction, feedback]);
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b"><h3 className="text-lg font-bold text-gray-800">{dish.name}</h3></div>
-                <div className="p-4 space-y-4">
-                    <p className="text-sm text-gray-600">AI Prediction: <span className="font-bold">{dish.prediction} plates</span></p>
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">Your Estimate</label>
-                        <input type="number" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-lg text-center font-bold" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
-                    </div>
-                    <div className="p-3 bg-indigo-50 rounded-lg text-center">
-                        <p className="text-sm text-indigo-700">Blended Forecast</p>
-                        <p className="text-2xl font-extrabold text-indigo-600">{blendedForecast} plates</p>
-                    </div>
+            {lowStockItems.length > 0 && (
+                <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow mb-4" role="alert">
+                    <h3 className="font-bold text-lg flex items-center"> <AlertTriangleIcon className="h-6 w-6 mr-2"/> Low Stock Alerts! </h3>
+                    <ul className="list-disc list-inside mt-2 text-sm"> {lowStockItems.map(item => ( <li key={item.id}> <strong>{item.name}:</strong> Only {item.currentStock} {item.unit} left. (Threshold is {item.lowStockThreshold}) </li> ))} </ul>
                 </div>
-                <div className="p-4 border-t flex gap-3">
-                    <button onClick={onClose} className="w-full bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg">Cancel</button>
-                    <button onClick={() => onUpdate(dish, feedback)} className="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg">Update</button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// --- LIVE ORDERS SCREEN (PRO) ---
-function LiveOrdersScreen({ restaurant }) {
-    const [orders, setOrders] = useState(MOCK_ORDERS);
-    const [showDeliveryModal, setShowDeliveryModal] = useState(null);
-    const isPro = restaurant.subscription === 'pro';
-
-    if (!isPro) return <UpgradeToPro feature="Live Order Management" />;
-
-    return (
-        <div className="space-y-4">
-            <h2 className="text-lg font-bold text-gray-700">Live Orders</h2>
-            {orders.length === 0 && <p className="text-gray-500 text-center py-8">No new orders right now.</p>}
-            {orders.map(order => (
-                <div key={order.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <p className="font-bold text-gray-800">{order.customerName}</p>
-                            <p className="text-sm text-gray-500">Total: ₹{order.total}</p>
-                        </div>
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>{order.status}</span>
-                    </div>
-                    <div className="text-sm text-gray-600 mt-2">{order.items.map(item => `${item.qty}x ${item.name}`).join(', ')}</div>
-                    {order.status === 'pending' && (
-                        <div className="mt-4 flex gap-2">
-                            <button className="flex-1 bg-green-500 text-white text-sm font-bold py-2 rounded-lg flex items-center justify-center gap-1"><CheckCircleIcon /></button>
-                            <button className="flex-1 bg-red-500 text-white text-sm font-bold py-2 rounded-lg flex items-center justify-center gap-1"><XCircleIcon /></button>
-                        </div>
-                    )}
-                    {order.status === 'accepted' && <button onClick={() => setShowDeliveryModal(order)} className="mt-4 w-full bg-blue-500 text-white text-sm font-bold py-2 rounded-lg flex items-center justify-center gap-2"><TruckIcon /> Book Delivery</button>}
-                </div>
-            ))}
-            {showDeliveryModal && <DeliveryPartnerModal order={showDeliveryModal} onClose={() => setShowDeliveryModal(null)} />}
-        </div>
-    );
-}
-
-// --- DELIVERY PARTNER MODAL ---
-function DeliveryPartnerModal({ order, onClose }) {
-    const deliveryPartners = [{ name: 'Dunzo', eta: '12 mins', cost: 45 }, { name: 'Rapido', eta: '15 mins', cost: 40 }];
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b"><h3 className="text-lg font-bold text-gray-800">Book a Delivery Partner</h3></div>
-                <div className="p-4 space-y-3">
-                    {deliveryPartners.map(partner => (
-                        <div key={partner.name} className="flex justify-between items-center p-3 border rounded-lg">
-                            <div><p className="font-semibold">{partner.name}</p><p className="text-sm text-gray-500">{partner.eta} - ₹{partner.cost}</p></div>
-                            <button onClick={() => { alert(`Booked with ${partner.name}!`); onClose(); }} className="bg-indigo-600 text-white text-sm font-bold py-1 px-3 rounded-lg">Book</button>
+            )}
+            <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
+            {loading ? ( <p>Calculating predictions...</p> )
+            : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error: </strong> <span className="block sm:inline">{predictionError}</span> </div> )
+            : predictions.length > 0 ? (
+                <div className="space-y-3">
+                    {predictions.map(item => (
+                        <div key={item.id} className="bg-white p-4 rounded-lg shadow relative">
+                            <h3 className="font-bold text-lg">{item.name}</h3>
+                            <p className="text-gray-600">Prediction: {item.prediction} plates (Confidence: {item.confidence}%)</p>
+                            {item.wastage && ( <p className="text-yellow-600 font-semibold flex items-center mt-1"> <AlertTriangleIcon className="h-5 w-5 mr-1" /> High wastage last week! ({item.wastagePercent}%) </p> )}
                         </div>
                     ))}
                 </div>
-                <div className="p-4 border-t"><button onClick={onClose} className="w-full bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg">Cancel</button></div>
-            </div>
+             ) : (
+                <div className="bg-white p-4 rounded-lg shadow text-center">
+                    <p className="text-gray-600">No predictions to show.</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                        {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."}
+                    </p>
+                </div>
+             )}
+            {isSalesModalOpen && ( <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={calculatePredictions}/> )}
         </div>
     );
-}
+};
 
-// --- REPORTS SCREEN (PRO) ---
-function ReportsScreen({ restaurant }) {
-    const isPro = restaurant.subscription === 'pro';
-    if (!isPro) return <UpgradeToPro feature="Advanced Reports & Data Export" />;
 
+const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
+    if (!userId) return null;
+    const [salesData, setSalesData] = useState(
+        dishes.reduce((acc, dish) => {
+            acc[dish.id] = { sold: '', wasted: '' };
+            return acc;
+        }, {})
+    );
+    const [isSaving, setIsSaving] = useState(false);
+    const handleInputChange = (dishId, field, value) => {
+        const numValue = value === '' ? '' : Math.max(0, parseInt(value, 10));
+        setSalesData(prev => ({ ...prev, [dishId]: { ...prev[dishId], [field]: numValue } }));
+    };
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+            const date = Timestamp.fromDate(yesterday); const formattedDate = formatDate(date); const batch = writeBatch(db);
+            for (const dish of dishes) {
+                const sold = salesData[dish.id]?.sold === '' ? 0 : Number(salesData[dish.id]?.sold ?? 0);
+                const wasted = salesData[dish.id]?.wasted === '' ? 0 : Number(salesData[dish.id]?.wasted ?? 0);
+                if (sold > 0 || wasted > 0) {
+                    const docId = `${userId}_${formattedDate}_${dish.id}`;
+                    const saleRef = doc(db, 'daily_sales', docId);
+                    batch.set(saleRef, { userId, dishId: dish.id, dishName: dish.name, quantitySold: sold, quantityWasted: wasted, date, });
+                }
+            }
+            await batch.commit(); onSave(); onClose();
+        } catch (error) { console.error("Error saving sales data: ", error); alert("Failed to save sales data."); } finally { setIsSaving(false); }
+    };
     return (
-        <div className="space-y-6">
-            <h2 className="text-lg font-bold text-gray-700">Weekly Reports</h2>
-            <div className="p-4 bg-white rounded-lg shadow-sm border">
-                <h3 className="font-semibold mb-2">Sales per Dish</h3>
-                <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2"><div className="w-24">Biryani</div><div className="h-4 bg-green-500 rounded" style={{width: '80%'}}></div></div>
-                    <div className="flex items-center gap-2"><div className="w-24">Paneer</div><div className="h-4 bg-green-500 rounded" style={{width: '50%'}}></div></div>
-                </div>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+                 <div className="p-4 border-b"> <h2 className="text-xl font-bold">Enter Yesterday's Sales</h2> </div>
+                 <div className="p-4 space-y-4 overflow-y-auto">
+                    {(dishes || []).map(dish => (
+                        <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
+                            <p className="font-semibold text-gray-800">{dish.name}</p>
+                            <div className="flex items-center space-x-3 mt-2">
+                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Sold</label> <input type="number" min="0" value={salesData[dish.id]?.sold ?? ''} onChange={(e) => handleInputChange(dish.id, 'sold', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 25" /> </div>
+                                <div className="flex-1"> <label className="text-sm text-gray-500">Quantity Wasted</label> <input type="number" min="0" value={salesData[dish.id]?.wasted ?? ''} onChange={(e) => handleInputChange(dish.id, 'wasted', e.target.value)} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 2" /> </div>
+                            </div>
+                        </div>
+                    ))}
+                    {(!dishes || dishes.length === 0) && (<p className="text-gray-500 text-center">Please add some dishes in the Settings tab first.</p>)}
+                 </div>
+                 <div className="p-4 border-t flex justify-end space-x-3">
+                     <button onClick={onClose} disabled={isSaving} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button>
+                     <button onClick={handleSave} disabled={isSaving || !dishes || dishes.length === 0} className="px-4 py-2 bg-primary text-on-primary rounded-md disabled:opacity-50"> {isSaving ? 'Saving...' : 'Save'} </button>
+                 </div>
             </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm border">
-                <h3 className="font-semibold mb-2">Wastage % per Dish</h3>
-                <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2"><div className="w-24">Biryani</div><div className="h-4 bg-red-400 rounded" style={{width: '15%'}}></div></div>
-                    <div className="flex items-center gap-2"><div className="w-24">Paneer</div><div className="h-4 bg-red-400 rounded" style={{width: '8%'}}></div></div>
-                </div>
-            </div>
-            <button onClick={() => alert("Generating sales report...")} className="w-full bg-gray-700 text-white font-bold py-3 px-4 rounded-lg">Download Sales Data (CSV)</button>
         </div>
     );
-}
+};
 
-// --- SETTINGS SCREEN ---
-function SettingsScreen({ restaurant, setRestaurant, handleLogout }) {
-    const [dishes, setDishes] = useState(restaurant.dishes || []);
-    const [newDishName, setNewDishName] = useState('');
 
-    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=https://your-ordering-website.com/menu/${restaurant.id}`;
+const LiveOrdersScreen = ({ restaurant, userId }) => {
+    if (!userId) return <LoadingScreen message="Waiting for user data..." />;
+    const [orders, setOrders] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    const handleAddDish = async () => {
-        if (!newDishName.trim()) return;
-        const newDish = { id: `d${Date.now()}`, name: newDishName.trim() };
-        const updatedDishes = [...dishes, newDish];
-        
-        await setDoc(doc(db, "restaurants", restaurant.id), { dishes: updatedDishes }, { merge: true });
-        setDishes(updatedDishes);
-        setRestaurant(prev => ({ ...prev, dishes: updatedDishes }));
-        setNewDishName('');
+    useEffect(() => {
+        const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('status', 'in', ['pending', 'accepted']));
+        const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
+            const liveOrders = [];
+            querySnapshot.forEach((doc) => { liveOrders.push({ id: doc.id, ...doc.data() }); });
+            liveOrders.sort((a, b) => {
+                if (a.status === 'pending' && b.status !== 'pending') return -1;
+                if (a.status !== 'pending' && b.status === 'pending') return 1;
+                return (a.createdAt?.toDate() || 0) - (b.createdAt?.toDate() || 0);
+            });
+            setOrders(liveOrders); setLoading(false);
+        }, (error) => { console.error("Error fetching live orders: ", error); setLoading(false); });
+        return () => unsubscribe();
+    }, [userId]);
+
+    const addTestOrder = async () => {
+        const testCustomer = { name: 'Test Customer ' + Math.floor(Math.random() * 100), phone: '919876500000' };
+        try {
+            const orderTotal = 200; const pointsEarned = Math.floor(orderTotal);
+            await addDoc(collection(db, 'live_orders'), {
+                userId: userId, customerName: testCustomer.name, customerPhone: testCustomer.phone,
+                items: [ { name: restaurant.dishes[0]?.name || 'Test Dish 1', quantity: 1, price: 100 }, { name: restaurant.dishes[1]?.name || 'Test Dish 2', quantity: 2, price: 50 } ],
+                total: orderTotal, status: 'pending', createdAt: Timestamp.now()
+            });
+            const customerDocId = `${userId}_${testCustomer.phone}`;
+            const customerRef = doc(db, 'customers', customerDocId);
+            const customerSnap = await getDoc(customerRef);
+            let currentPoints = 0; let notificationAlreadySent = false;
+            if (customerSnap.exists()) { currentPoints = customerSnap.data().loyaltyPoints || 0; notificationAlreadySent = customerSnap.data().pointsNotificationSent || false; }
+            const newTotalPoints = currentPoints + pointsEarned;
+            await setDoc(customerRef, { userId: userId, name: testCustomer.name, phone: testCustomer.phone, lastOrderAt: Timestamp.now(), loyaltyPoints: increment(pointsEarned), pointsNotificationSent: newTotalPoints >= 1000 ? notificationAlreadySent : false }, { merge: true });
+            if (newTotalPoints >= 1000 && !notificationAlreadySent) {
+                const message = `🎉 Congratulations ${testCustomer.name}! You've reached ${newTotalPoints} loyalty points at ${restaurant.name}! Enjoy a special 1+1 offer on your next order as our valued customer! 🎁`;
+                const encodedText = encodeURIComponent(message);
+                const whatsappUrl = `https://wa.me/${testCustomer.phone}?text=${encodedText}`;
+                window.open(whatsappUrl, `_blank_reward`);
+                await updateDoc(customerRef, { pointsNotificationSent: true });
+                alert(`Reward notification opened for ${testCustomer.name}.`);
+            }
+        } catch (error) { console.error("Error adding test order/customer/points: ", error); }
+    };
+
+    const updateOrderStatus = async (orderId, newStatus) => {
+        const orderRef = doc(db, 'live_orders', orderId);
+        try { await updateDoc(orderRef, { status: newStatus }); } catch (error) { console.error("Error updating order status: ", error); }
     };
 
     return (
-        <div className="space-y-6">
-            <div className="p-4 bg-white rounded-lg shadow-sm border">
-                <h3 className="font-semibold text-gray-800 mb-4">Manage Dishes</h3>
-                <div className="space-y-2">{dishes.map(dish => <div key={dish.id} className="p-2 border rounded bg-gray-50">{dish.name}</div>)}</div>
-                <div className="mt-4 flex gap-2">
-                    <input type="text" value={newDishName} onChange={e => setNewDishName(e.target.value)} placeholder="New dish name" className="flex-grow px-3 py-2 border rounded-md" />
-                    <button onClick={handleAddDish} className="bg-indigo-600 text-white p-2 rounded-md"><PlusIcon /></button>
+        <div>
+            <button onClick={addTestOrder} className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"> Add Test Order (Adds Points) </button>
+             {loading ? <p>Loading live orders...</p> : (
+                orders.length === 0 ? ( <p className="text-center text-gray-500 mt-8">No live orders yet.</p> )
+                : ( <div className="space-y-3"> {orders.map(order => ( <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+                             <div className="flex justify-between items-center mb-2"> <div> <h3 className="font-bold text-lg">{order.customerName}</h3> {order.customerPhone && <p className="text-sm text-gray-500">{order.customerPhone}</p>} </div> <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${ order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800' }`}> {order.status} </span> </div>
+                             <ul className="list-disc list-inside text-gray-700 mb-2"> {(order.items || []).map((item, index) => ( <li key={`${item.name}-${index}`}>{item.quantity}x {item.name}</li> ))} </ul>
+                             <p className="font-bold text-right mb-3">Total: ₹{order.total}</p>
+                             <div className="flex space-x-2"> {order.status === 'pending' && ( <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button> )} {order.status === 'accepted' && ( <> <button className="w-1/2 bg-blue-500 text-white py-2 rounded-md">Book Delivery (WIP)</button> <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-1/2 bg-primary text-on-primary py-2 rounded-md">Mark Completed</button> </> )} </div>
+                         </div> ))} </div> )
+            )}
+        </div>
+    );
+};
+
+
+const MarketingScreen = ({ restaurant, userId }) => {
+    const [topic, setTopic] = useState('');
+    const [platform, setPlatform] = useState('Instagram');
+    const [generatedPost, setGeneratedPost] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const callGeminiAPI = useCallback(async (systemPrompt, userQuery) => {
+        setIsLoading(true); setError(''); setGeneratedPost('');
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; // Make sure this is replaced
+        if (apiKey === "YOUR_GEMINI_API_KEY") { setError("API Key for Gemini not set."); setIsLoading(false); return null; }
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) throw new Error(`API failed: ${response.status}`);
+            const result = await response.json();
+            const candidate = result.candidates?.[0];
+            if (candidate && candidate.content?.parts?.[0]?.text) { return candidate.content.parts[0].text; }
+            else { throw new Error('Unexpected API response.'); }
+        } catch (err) { console.error('Gemini Error:', err); setError(`AI Error: ${err.message}`); return null; }
+        finally { setIsLoading(false); }
+    }, []);
+
+    const generateSocialMediaPost = async (promptTopic) => {
+        const finalTopic = promptTopic || topic;
+        if (!finalTopic.trim()) { setError('Please enter a topic.'); return; }
+        const systemPrompt = `Act as a creative restaurant marketing expert. Restaurant: ${restaurant.name}, Cuisine: ${restaurant.cuisineType || 'delicious food'}, Target: ${restaurant.targetAudience || 'food lovers'}. Platform: ${platform}. Use emojis & hashtags.`;
+        const userQuery = `Generate a post about: ${finalTopic}.`;
+        const result = await callGeminiAPI(systemPrompt, userQuery);
+        if (result) { setGeneratedPost(result); setTopic(finalTopic); }
+    };
+    
+    const generatePostForToday = () => {
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayOfWeek = days[new Date().getDay()];
+        const popularDish = restaurant.dishes[0]?.name || 'our delicious food';
+        let autoTopic = `A special offer for ${dayOfWeek}!`;
+        if (dayOfWeek === 'Friday' || dayOfWeek === 'Saturday') { autoTopic = `Weekend vibes! Enjoy ${popularDish} at ${restaurant.name}!`; }
+        else if (dayOfWeek === 'Monday') { autoTopic = `Start your week right with a meal from ${restaurant.name}.`; }
+        generateSocialMediaPost(autoTopic);
+    };
+
+    const copyToClipboard = () => {
+        const textArea = document.createElement("textarea"); textArea.value = generatedPost; document.body.appendChild(textArea); textArea.select();
+        try { document.execCommand('copy'); alert('Post copied!'); } catch (err) { alert('Failed to copy.'); }
+        document.body.removeChild(textArea);
+    };
+
+    return (
+        <div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Create a New Post</h3>
+                <button onClick={generatePostForToday} disabled={isLoading} className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center disabled:opacity-50 mb-4"> <SparklesIcon className="h-6 w-6 mr-2" /> Generate AI Post for Today </button>
+                <div className="border-t pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1"> Or enter a custom topic: </label>
+                    <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="E.g., Special offer on Biryani" className="w-full p-2 border rounded-md mb-3"/>
+                     <label className="block text-sm font-medium text-gray-700 mb-1"> Platform </label>
+                    <select value={platform} onChange={(e) => setPlatform(e.target.value)} className="w-full p-2 border rounded-md bg-white mb-4"> <option value="Instagram">Instagram</option> <option value="Facebook">Facebook</option> </select>
+                    <button onClick={() => generateSocialMediaPost(topic)} disabled={isLoading} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50"> {isLoading ? <SpinnerIcon className="h-6 w-6 mr-2 animate-spin"/> : <SparklesIcon className="h-6 w-6 mr-2"/>} {isLoading ? 'Generating...' : 'Generate Custom Post'} </button>
                 </div>
+                 {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
             </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm border">
-                <h3 className="font-semibold text-gray-800 mb-2">Your Ordering QR Code</h3>
-                <div className="flex justify-center p-2"><img src={qrCodeUrl} alt="Restaurant QR Code" className="rounded-lg border-4 border-gray-200" /></div>
-                <p className="text-center text-sm text-gray-500 mt-2">Place this on tables for direct orders.</p>
-            </div>
-            {restaurant.subscription === 'basic' && (
-                <div className="p-4 bg-gradient-to-r from-green-400 to-blue-500 rounded-lg text-white text-center">
-                    <h3 className="text-lg font-bold">Upgrade to SmartChef Pro!</h3>
-                    <p className="text-sm mt-1 mb-3">Unlock live orders, delivery integration, and advanced reports.</p>
-                    <button className="bg-white text-green-500 font-bold py-2 px-6 rounded-full">Upgrade Now</button>
+            {generatedPost && (
+                <div className="bg-white p-4 rounded-lg shadow">
+                    <h3 className="font-bold text-lg mb-2">Generated Post:</h3>
+                    <textarea value={generatedPost} onChange={(e) => setGeneratedPost(e.target.value)} className="w-full p-2 border rounded-md h-40 mb-3 bg-gray-50" readOnly={isLoading}/>
+                    <button onClick={copyToClipboard} className="w-full bg-blue-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center"> <ClipboardIcon className="h-5 w-5 mr-2" /> Copy Post Text </button>
                 </div>
             )}
-            <button onClick={handleLogout} className="w-full bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2">
-                <LogoutIcon /> Logout
+        </div>
+    );
+};
+
+
+const InventoryScreen = ({ restaurant, userId }) => {
+    const [inventory, setInventory] = useState([]);
+    const [checklist, setChecklist] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [newItem, setNewItem] = useState({ name: '', currentStock: '', unit: 'kg', lowStockThreshold: '' });
+    const [showAddItem, setShowAddItem] = useState(false);
+    const [cleanlinessTasks, setCleanlinessTasks] = useState([
+        { id: 'task1', name: 'Wipe down all counters & prep surfaces', completed: false },
+        { id: 'task2', name: 'Sweep and mop kitchen floor', completed: false },
+        { id: 'task3', name: 'Check and log fridge/freezer temperatures', completed: false },
+        { id: 'task4', name: 'Empty all trash bins', completed: false },
+        { id: 'task5', name: 'Clean cooking equipment (grill, fryers)', completed: false },
+    ]);
+    const [logLoading, setLogLoading] = useState(false);
+    const [lastLog, setLastLog] = useState(null);
+
+    useEffect(() => {
+        setLoading(true);
+        const invQuery = query(collection(db, 'inventory'), where('userId', '==', userId), orderBy('name'));
+        const unsubscribe = onSnapshot(invQuery, (snapshot) => {
+            const items = [];
+            snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+            setInventory(items);
+            setLoading(false);
+        }, err => { console.error("Error fetching inventory:", err); setLoading(false); });
+        return () => unsubscribe();
+    }, [userId]);
+
+    useEffect(() => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const logQuery = query(collection(db, 'cleanliness_logs'), where('userId', '==', userId), where('date', '==', todayStr), limit(1));
+        getDocs(logQuery).then(snapshot => {
+            if (!snapshot.empty) {
+                setLastLog(snapshot.docs[0].data());
+                setCleanlinessTasks(tasks => tasks.map(task => ({ ...task, completed: true })));
+            }
+        });
+    }, [userId]);
+
+    const handleItemChange = (e) => { const { name, value } = e.target; setNewItem(prev => ({ ...prev, [name]: value })); };
+
+    const handleAddItem = async (e) => {
+        e.preventDefault();
+        if (!newItem.name || !newItem.currentStock || !newItem.unit || !newItem.lowStockThreshold) { alert("Please fill out all fields."); return; }
+        try { await addDoc(collection(db, 'inventory'), { userId: userId, name: newItem.name, currentStock: parseFloat(newItem.currentStock), unit: newItem.unit, lowStockThreshold: parseFloat(newItem.lowStockThreshold), }); setNewItem({ name: '', currentStock: '', unit: 'kg', lowStockThreshold: '' }); setShowAddItem(false); }
+        catch (error) { console.error("Error adding item: ", error); alert("Failed to add item."); }
+    };
+
+    const updateStock = async (itemId, amount) => {
+        const itemRef = doc(db, 'inventory', itemId);
+        try { await runTransaction(db, async (transaction) => { const itemDoc = await transaction.get(itemRef); if (!itemDoc.exists()) throw "Item does not exist!"; const newStock = Math.max(0, (itemDoc.data().currentStock || 0) + amount); transaction.update(itemRef, { currentStock: newStock }); }); }
+        catch (error) { console.error("Error updating stock: ", error); alert("Failed to update stock."); }
+    };
+
+    const handleTaskToggle = (taskId) => { if (lastLog) return; setCleanlinessTasks(tasks => tasks.map(task => task.id === taskId ? { ...task, completed: !task.completed } : task)); };
+    
+    const submitCleanlinessLog = async () => {
+        setLogLoading(true);
+        const todayStr = new Date().toISOString().split('T')[0];
+        const completedTasks = cleanlinessTasks.filter(t => t.completed).map(t => t.name);
+        if (completedTasks.length !== cleanlinessTasks.length) { alert("Please complete all tasks before submitting."); setLogLoading(false); return; }
+        const log = { userId: userId, date: todayStr, completedAt: Timestamp.now(), completedBy: auth.currentUser.displayName, tasks: completedTasks };
+        try { await setDoc(doc(db, 'cleanliness_logs', `${userId}_${todayStr}`), log); setLastLog(log); alert("Cleanliness log submitted!"); }
+        catch (error) { console.error("Error submitting log: ", error); alert("Failed to submit log."); }
+        finally { setLogLoading(false); }
+    };
+
+    return (
+        <div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <div className="flex justify-between items-center mb-2"> <h3 className="font-bold text-lg">Inventory / Stock</h3> <button onClick={() => setShowAddItem(!showAddItem)} className="text-primary font-semibold text-sm"> {showAddItem ? 'Cancel' : '+ Add Item'} </button> </div>
+                {showAddItem && ( <form onSubmit={handleAddItem} className="bg-gray-50 p-3 rounded-md mb-3 space-y-2 border"> <input name="name" value={newItem.name} onChange={handleItemChange} placeholder="Item Name (e.g., Rice)" className="w-full p-2 border rounded"/> <div className="flex space-x-2"> <input name="currentStock" type="number" value={newItem.currentStock} onChange={handleItemChange} placeholder="Current Stock" className="w-1/2 p-2 border rounded"/> <select name="unit" value={newItem.unit} onChange={handleItemChange} className="w-1/2 p-2 border rounded bg-white"> <option value="kg">kg</option> <option value="liters">liters</option> <option value="pieces">pieces</option> <option value="packs">packs</option> </select> </div> <input name="lowStockThreshold" type="number" value={newItem.lowStockThreshold} onChange={handleItemChange} placeholder="Low stock threshold" className="w-full p-2 border rounded"/> <button type="submit" className="w-full bg-primary text-on-primary font-semibold py-2 rounded-md hover:bg-primary-hover">Save Item</button> </form> )}
+                {loading ? <p>Loading inventory...</p> : ( <div className="divide-y divide-gray-200 max-h-60 overflow-y-auto"> {inventory.length === 0 && <p className="text-gray-500 text-center py-2">No inventory items added yet.</p>} {inventory.map(item => ( <div key={item.id} className="py-2"> <div className="flex justify-between items-center"> <span className="font-semibold">{item.name}</span> <span className={`font-bold ${item.currentStock <= item.lowStockThreshold ? 'text-red-500' : 'text-gray-700'}`}> {item.currentStock} {item.unit} </span> </div> <div className="flex items-center justify-end space-x-2 mt-1"> <button onClick={() => updateStock(item.id, -1)} className="px-2 py-0.5 bg-red-100 text-red-700 rounded">-1</button> <button onClick={() => updateStock(item.id, -5)} className="px-2 py-0.5 bg-red-100 text-red-700 rounded">-5</button> <button onClick={() => updateStock(item.id, 5)} className="px-2 py-0.5 bg-green-100 text-green-700 rounded">+5</button> <button onClick={() => updateStock(item.id, 10)} className="px-2 py-0.5 bg-green-100 text-green-700 rounded">+10</button> </div> </div> ))} </div> )}
+            </div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                 <h3 className="font-bold text-lg mb-2">Daily Kitchen Checklist</h3>
+                 <div className="space-y-2"> {cleanlinessTasks.map(task => ( <label key={task.id} className={`flex items-center space-x-3 ${lastLog ? 'cursor-not-allowed' : ''}`}> <input type="checkbox" checked={task.completed} disabled={!!lastLog} onChange={() => handleTaskToggle(task.id)} className="h-5 w-5 rounded border-gray-300 text-primary ring-primary disabled:opacity-50"/> <span className={`text-gray-700 ${ task.completed ? 'line-through text-gray-400' : ''}`}> {task.name} </span> </label> ))} </div>
+                 {lastLog ? ( <p className="text-center text-sm text-green-600 font-semibold mt-4">Log submitted for today by {lastLog.completedBy.split(' ')[0]}!</p> ) : ( <button onClick={submitCleanlinessLog} disabled={logLoading || cleanlinessTasks.some(t => !t.completed)} className="w-full mt-4 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300 disabled:opacity-50"> {logLoading ? 'Submitting...' : 'Submit Log for Today'} </button> )}
+            </div>
+        </div>
+    );
+};
+
+
+// ** UPDATED AIInsightsScreen with CFO features **
+const AIInsightsScreen = ({ restaurant, userId }) => {
+    const [salesAnalysis, setSalesAnalysis] = useState('');
+    const [feedbackSummary, setFeedbackSummary] = useState('');
+    const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+    const [loadingFeedback, setLoadingFeedback] = useState(false);
+    const [customers, setCustomers] = useState([]);
+    const [loadingCustomers, setLoadingCustomers] = useState(true);
+    const [offerModal, setOfferModal] = useState({ isOpen: false, customer: null, message: '' });
+    const [loadingOffer, setLoadingOffer] = useState(false);
+    const [error, setError] = useState('');
+    
+    // ** NEW: Financial States **
+    const [totalRevenue, setTotalRevenue] = useState(0);
+    const [estimatedProfit, setEstimatedProfit] = useState(0);
+    const [loadingFinancials, setLoadingFinancials] = useState(true);
+    const [cfoAdvice, setCfoAdvice] = useState('');
+    const [loadingCfo, setLoadingCfo] = useState(false);
+
+    useEffect(() => {
+        // Fetch Customers (simplified to avoid index)
+        setLoadingCustomers(true);
+        const customersQuery = query(collection(db, 'customers'), where('userId', '==', userId));
+        const unsubscribeCust = onSnapshot(customersQuery, (snapshot) => {
+            const list = []; snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+            list.sort((a, b) => (b.lastOrderAt?.toDate() || 0) - (a.lastOrderAt?.toDate() || 0));
+            setCustomers(list); setLoadingCustomers(false);
+        });
+
+        // ** NEW: Fetch Sales for Financials **
+        setLoadingFinancials(true);
+        const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
+        // Real-time listener for sales to update revenue instantly
+        const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
+            let rev = 0;
+            // Use current restaurant data for prices (simplified assumption: price is not stored in daily_sales, we estimate)
+            // In a real app, daily_sales should store 'totalAmount'. Here we use 'quantitySold'.
+            // Let's assume average dish price of 200 for calculation if not available
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                // Simple revenue estimation: quantity * 200 (since price isn't in daily_sales MVP schema)
+                // A better way: fetch dishes price. For MVP, we'll use a rough estimate or live_orders if we tracked them there.
+                // Actually, let's use 'live_orders' for revenue as it has 'total'.
+                // But daily_sales has the historical data.
+                // Let's estimate revenue from daily_sales * 250 (avg price) for now to show functionality.
+                rev += (data.quantitySold || 0) * 200; 
+            });
+            setTotalRevenue(rev);
+            const foodCost = restaurant.foodCostPercent || 35;
+            const profit = rev * ((100 - foodCost) / 100);
+            setEstimatedProfit(profit);
+            setLoadingFinancials(false);
+        });
+
+        return () => { unsubscribeCust(); unsubscribeSales(); };
+    }, [userId, restaurant.foodCostPercent]);
+
+    const callGeminiAPI = async (systemPrompt, userQuery) => {
+        setError('');
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; 
+        if (apiKey === "YOUR_GEMINI_API_KEY") { setError("API Key not set."); return null; }
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) throw new Error(`API failed: ${response.status}`);
+            const result = await response.json();
+            if (result.candidates?.[0]?.content?.parts?.[0]?.text) return result.candidates[0].content.parts[0].text;
+            throw new Error('Unexpected API response.');
+        } catch (err) { console.error('Gemini Error:', err); setError(`AI Error: ${err.message}`); return null; }
+    };
+    
+    // ** NEW: AI CFO Advisor **
+    const generateCfoAdvice = async () => {
+        setLoadingCfo(true); setCfoAdvice('');
+        const systemPrompt = `You are an expert Restaurant CFO and Business Consultant. Analyze the restaurant's basic financial data and provide 3 strategic recommendations: 1) Profit Optimization, 2) Expansion Readiness (can they afford a new branch?), 3) A trending menu item suggestion based on their cuisine. Be professional yet encouraging.`;
+        const userQuery = `Restaurant: ${restaurant.name} (${restaurant.cuisineType}). Total Estimated Revenue (all time): ₹${totalRevenue}. Estimated Gross Profit: ₹${Math.round(estimatedProfit)} (Margin ${100 - (restaurant.foodCostPercent || 35)}%). Provide strategic business advice.`;
+        const result = await callGeminiAPI(systemPrompt, userQuery);
+        if (result) setCfoAdvice(result);
+        setLoadingCfo(false);
+    };
+
+    const generateSalesAnalysis = async () => { /* ... same as before ... */
+        setLoadingAnalysis(true); setSalesAnalysis('');
+        try {
+            const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
+            const querySnapshot = await getDocs(salesQuery);
+            const salesSummary = {}; (restaurant.dishes || []).forEach(d => salesSummary[d.id] = { name: d.name, sold: 0, wasted: 0 });
+            let salesFound = false;
+            querySnapshot.forEach(doc => { const data = doc.data(); if(data.date && data.date.toMillis() >= Timestamp.fromDate(thirtyDaysAgo).toMillis()) { if (salesSummary[data.dishId]) { salesSummary[data.dishId].sold += (data.quantitySold || 0); salesSummary[data.dishId].wasted += (data.quantityWasted || 0); salesFound = true; } } });
+            let dataSummary = "Last 30 Days Sales Data:\n"; Object.values(salesSummary).forEach(item => { const prepared = item.sold + item.wasted; const wastagePerc = prepared > 0 ? Math.round((item.wasted / prepared) * 100) : 0; dataSummary += `- ${item.name}: Sold ${item.sold}, Wasted ${item.wasted} (${wastagePerc}% wastage)\n`; });
+            if (!salesFound) dataSummary = "No sales data found for the last 30 days.";
+            const systemPrompt = `You are a helpful AI assistant...`; const userQuery = `Analyze...:\n\n${dataSummary}`;
+            const result = await callGeminiAPI(systemPrompt, userQuery); if (result) setSalesAnalysis(result);
+        } catch (err) { setError("Failed to fetch sales data."); } finally { setLoadingAnalysis(false); }
+    };
+
+    const generateFeedbackSummary = async () => { /* ... same as before ... */
+        setLoadingFeedback(true); setFeedbackSummary('');
+        try {
+            const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId), limit(30));
+            const querySnapshot = await getDocs(feedbackQuery);
+            if (querySnapshot.empty) { setFeedbackSummary("No feedback found."); setLoadingFeedback(false); return; }
+            let feedbackText = "Recent Feedback:\n"; querySnapshot.forEach(doc => { const data = doc.data(); feedbackText += `- ${data.rating}/5: ${data.comment}\n`; });
+            const systemPrompt = `Summarize customer feedback...`; const userQuery = `Summarize:\n\n${feedbackText}`;
+            const result = await callGeminiAPI(systemPrompt, userQuery); if (result) setFeedbackSummary(result);
+        } catch (err) { setError("Failed to fetch feedback."); } finally { setLoadingFeedback(false); }
+    };
+
+    // ... (addTestFeedback, sendInsightsToWhatsApp, handleGenerateOffer, sendOfferToCustomer identical to before)
+    const addTestFeedback = async () => { /* ... */ 
+        const testFeedbacks = [ { rating: 5, comment: "Great food!" }, { rating: 3, comment: "Okay service." } ];
+        const randomFeedback = testFeedbacks[Math.floor(Math.random() * testFeedbacks.length)];
+        await addDoc(collection(db, 'feedback'), { userId, ...randomFeedback, createdAt: Timestamp.now() }); alert("Test feedback added!");
+    };
+    const sendInsightsToWhatsApp = (content, type) => { /* ... */ 
+        if (!restaurant.phone) { alert("Add phone in Settings."); return; }
+        const url = `https://wa.me/${restaurant.phone}?text=${encodeURIComponent(`*${type}*\n\n${content}`)}`; window.open(url, '_blank');
+    };
+    const handleGenerateOffer = async (customer) => {
+        setLoadingOffer(true); setOfferModal({ isOpen: true, customer, message: 'Generating...' });
+        const res = await callGeminiAPI(`Write a WhatsApp offer for a customer...`, `Offer for ${customer.name}, ${customer.loyaltyPoints} points.`);
+        setOfferModal({ isOpen: true, customer, message: res || "Failed." }); setLoadingOffer(false);
+    };
+    const sendOfferToCustomer = (customer, msg) => {
+        if (!customer.phone) return; window.open(`https://wa.me/${customer.phone}?text=${encodeURIComponent(msg)}`, '_blank'); setOfferModal({ isOpen: false, customer: null, message: '' });
+    };
+
+     return (
+        <div>
+            {error && <p className="text-red-600 text-sm mb-3 bg-red-100 p-2 rounded">{error}</p>}
+            
+            {/* ** NEW: Financial Health & CFO Section ** */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-green-500">
+                <h3 className="font-bold text-lg mb-3 text-gray-800">💰 Financial Health (AI CFO)</h3>
+                {loadingFinancials ? <p className="text-sm text-gray-500">Calculating financials...</p> : (
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="bg-green-50 p-3 rounded-lg">
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Est. Revenue</p>
+                            <p className="text-xl font-bold text-green-700">₹{totalRevenue.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-blue-50 p-3 rounded-lg">
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Est. Profit</p>
+                            <p className="text-xl font-bold text-blue-700">₹{Math.round(estimatedProfit).toLocaleString()}</p>
+                            <p className="text-xs text-gray-400">(@ {100 - (restaurant.foodCostPercent || 35)}% Margin)</p>
+                        </div>
+                    </div>
+                )}
+                <button onClick={generateCfoAdvice} disabled={loadingCfo} className="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition duration-300 flex items-center justify-center disabled:opacity-50">
+                    {loadingCfo ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <SparklesIcon className="h-5 w-5 mr-2" />} {loadingCfo ? 'Consulting AI...' : 'Ask AI CFO for Advice'}
+                </button>
+                {cfoAdvice && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{cfoAdvice}</pre> </div> )}
+            </div>
+
+            {/* Sales Analysis Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Sales Analysis (30 Days)</h3>
+                <button onClick={generateSalesAnalysis} disabled={loadingAnalysis} className="w-full bg-primary text-on-primary font-bold py-2 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50 mb-3">
+                    {loadingAnalysis ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <BarChartIcon className="h-5 w-5 mr-2" />} {loadingAnalysis ? 'Analyzing...' : 'Generate Report'}
+                </button>
+                {salesAnalysis && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner </button> </div> )}
+            </div>
+
+            {/* Customer Feedback Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                 <h3 className="font-bold text-lg mb-2">Customer Feedback</h3>
+                 <div className="flex space-x-2 mb-3">
+                     <button onClick={generateFeedbackSummary} disabled={loadingFeedback} className="flex-1 bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center disabled:opacity-50"> {loadingFeedback ? <SpinnerIcon className="h-5 w-5 mr-2 animate-spin" /> : <MessageSquareIcon className="h-5 w-5 mr-2" />} Summarize </button>
+                     <button onClick={addTestFeedback} className="flex-1 bg-gray-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-300 flex items-center justify-center"> <PlusIcon className="h-5 w-5 mr-2"/> Add Test </button>
+                 </div>
+                 {feedbackSummary && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{feedbackSummary}</pre> </div> )}
+            </div>
+            
+            {/* Customer Loyalty Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+                <h3 className="font-bold text-lg mb-2">Customer Loyalty</h3>
+                {loadingCustomers ? <p>Loading...</p> : (
+                    customers.length === 0 ? ( <p className="text-center text-gray-500 mt-4">No customers yet.</p> ) : (
+                        <div className="divide-y divide-gray-200 max-h-60 overflow-y-auto">
+                            {customers.map(cust => (
+                                <div key={cust.id} className="py-3 flex justify-between items-center">
+                                    <div> <p className="font-semibold">{cust.name}</p> <p className="text-sm text-gray-500">{cust.phone}</p> </div>
+                                    <div> <p className="font-semibold text-primary text-right">{cust.loyaltyPoints || 0} pts</p> <button onClick={() => handleGenerateOffer(cust)} className="mt-1 bg-blue-100 text-blue-700 font-bold py-1 px-2 rounded text-xs flex items-center"> <GiftIcon className="h-3 w-3 mr-1" /> Offer </button> </div>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                )}
+            </div>
+            
+            {/* Offer Modal */}
+            {offerModal.isOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
+                        <div className="p-4 border-b"> <h2 className="text-xl font-bold">Send Offer to {offerModal.customer?.name}</h2> </div>
+                        <div className="p-4 space-y-4 overflow-y-auto"> {loadingOffer ? <SpinnerIcon className="h-8 w-8 animate-spin text-primary mx-auto" /> : <textarea value={offerModal.message} onChange={(e) => setOfferModal(prev => ({ ...prev, message: e.target.value }))} className="w-full p-2 border rounded-md h-32 bg-gray-50" /> } </div>
+                        <div className="p-4 border-t flex justify-between space-x-3"> <button onClick={() => setOfferModal({ isOpen: false, customer: null, message: '' })} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button> <button onClick={() => sendOfferToCustomer(offerModal.customer, offerModal.message)} className="px-4 py-2 bg-green-500 text-white rounded-md flex items-center justify-center"> <SendIcon className="h-5 w-5 mr-2" /> WhatsApp </button> </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
+    if (!user) return <LoadingScreen message="Waiting for user data..." />;
+    const [dishes, setDishes] = useState(restaurant.dishes || []);
+    const [phone, setPhone] = useState(restaurant.phone || '');
+    const [cuisineType, setCuisineType] = useState(restaurant.cuisineType || '');
+    const [targetAudience, setTargetAudience] = useState(restaurant.targetAudience || '');
+    const [logoUrl, setLogoUrl] = useState(restaurant.logoUrl || '');
+    const [themeColor, setThemeColor] = useState(restaurant.themeColor || '#4f46e5');
+    const [foodCostPercent, setFoodCostPercent] = useState(restaurant.foodCostPercent || 35); // New State
+    const [newDishName, setNewDishName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        setDishes(restaurant.dishes || []); setPhone(restaurant.phone || '');
+        setCuisineType(restaurant.cuisineType || ''); setTargetAudience(restaurant.targetAudience || '');
+        setLogoUrl(restaurant.logoUrl || ''); setThemeColor(restaurant.themeColor || '#4f46e5');
+        setFoodCostPercent(restaurant.foodCostPercent || 35);
+     }, [restaurant]);
+
+    const handleAddDish = () => {
+        if (newDishName.trim() === '') return;
+        const newDish = { id: `dish${Date.now()}`, name: newDishName.trim() };
+        setDishes([...dishes, newDish]); setNewDishName('');
+     };
+    const handleRemoveDish = (idToRemove) => { setDishes(dishes.filter(dish => dish.id !== idToRemove)); };
+    const handleSaveChanges = async () => {
+        setIsSaving(true); const restaurantRef = doc(db, 'restaurants', user.uid);
+        try { const updatedData = { dishes, phone, cuisineType, targetAudience, logoUrl, themeColor, foodCostPercent: Number(foodCostPercent) };
+              await updateDoc(restaurantRef, updatedData); updateRestaurant(updatedData);
+              alert("Changes saved!");
+        } catch(error) { console.error("Save Error: ", error); alert("Save failed."); }
+        finally { setIsSaving(false); }
+    };
+    const shareQrViaWhatsApp = () => {
+         const menuUrl = `${window.location.origin}/menu/${user.uid}`;
+         const message = `Check out our menu: ${menuUrl}`;
+         const encodedText = encodeURIComponent(message);
+         const whatsappUrl = `https://wa.me/?text=${encodedText}`;
+         window.open(whatsappUrl, '_blank');
+     };
+    const feedbackUrl = `${window.location.origin}/feedback/${user.uid}`;
+
+    return (
+        <div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <p className="font-semibold">{user.displayName}</p> <p className="text-sm text-gray-500">{user.email}</p> </div>
+            
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Business Settings</h3>
+                 {/* New Profit Margin Setting */}
+                 <div> <label className="block text-sm font-medium text-gray-700 mb-1">Est. Food Cost (%)</label> <input type="number" value={foodCostPercent} onChange={(e) => setFoodCostPercent(e.target.value)} placeholder="35" className="w-full p-2 border rounded-md"/> <p className="text-xs text-gray-500">Used to calculate estimated profit.</p> </div>
+            </div>
+
+            {/* Branding Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Branding</h3>
+                 <div> <label htmlFor="logoUrl" className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label> <input type="url" id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-md"/> {logoUrl && <img src={logoUrl} alt="Preview" className="mt-2 h-10 w-auto rounded" onError={(e) => e.target.style.display='none'}/>} </div>
+                 <div> <label htmlFor="themeColor" className="block text-sm font-medium text-gray-700 mb-1">Theme Color</label> <div className="flex items-center space-x-2"> <input type="color" id="themeColor" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="p-1 h-10 w-10 block bg-white border rounded-lg cursor-pointer"/> <input type="text" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#4f46e5" className="w-full p-2 border rounded-md"/> </div> </div>
+            </div>
+            {/* Restaurant Details */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                 <h3 className="font-bold text-lg mb-1">Details (for AI)</h3>
+                 <div> <label htmlFor="cuisineType" className="block text-sm font-medium text-gray-700 mb-1">Cuisine</label> <input type="text" id="cuisineType" value={cuisineType} onChange={(e) => setCuisineType(e.target.value)} placeholder="e.g., South Indian" className="w-full p-2 border rounded-md"/> </div>
+                 <div> <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">Customers</label> <input type="text" id="targetAudience" value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="e.g., Families" className="w-full p-2 border rounded-md"/> </div>
+            </div>
+            {/* WhatsApp */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">WhatsApp</h3> <p className="text-sm text-gray-600 mb-2">Your number (with country code) for reports.</p> <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g., 919876543210" className="w-full p-2 border rounded-md"/> </div>
+            {/* Dishes */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md"> <span>{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
+            <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
+            {/* QR Codes */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
+            <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
+            {/* Sign Out */}
+            <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
+        </div>
+    );
+};
+
+
+const ProFeatureLock = ({ title, description }) => (
+     <div>
+        <div className="bg-white p-6 rounded-lg shadow text-center mt-4">
+            <LockIcon className="h-12 w-12 text-primary mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-gray-800 mb-2">This is a Pro Feature</h2>
+            <p className="text-gray-600 mb-6">{description}</p>
+            <button className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300">
+                Upgrade to Pro
             </button>
         </div>
-    );
-}
+    </div>
+);
 
-// --- UPGRADE TO PRO COMPONENT ---
-function UpgradeToPro({ feature }) {
-    return (
-        <div className="flex flex-col items-center justify-center text-center h-full p-6 bg-gray-100 rounded-lg">
-            <div className="bg-indigo-100 text-indigo-600 p-4 rounded-full mb-4"><ShoppingCartIcon /></div>
-            <h2 className="text-xl font-bold text-gray-800">Unlock {feature}</h2>
-            <p className="text-gray-600 mt-2 mb-4">This is a SmartChef Pro feature. Upgrade your plan to accept direct orders, save on commissions, and grow your business.</p>
-            <button className="bg-gradient-to-r from-green-400 to-blue-500 text-white font-bold py-2 px-6 rounded-full shadow-lg">Upgrade to Pro</button>
-        </div>
-    );
-}
 
-// --- BOTTOM NAVIGATION BAR ---
-function BottomNavBar({ currentScreen, setCurrentScreen, restaurant }) {
+const BottomNavBar = ({ activeScreen, setActiveScreen, isPro, themeColor }) => {
     const navItems = [
-        { id: 'dashboard', label: 'Dashboard', icon: <ChefHatIcon /> },
-        { id: 'orders', label: 'Orders', icon: <ShoppingCartIcon />, pro: true },
-        { id: 'reports', label: 'Reports', icon: <ChartIcon />, pro: true },
-        { id: 'settings', label: 'Settings', icon: <SettingsIcon /> },
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
+        { id: 'marketing', label: 'Marketing AI', icon: SparklesIcon },
+        { id: 'orders', label: 'Orders', icon: ShoppingCartIcon },
+        { id: 'inventory', label: 'Operations', icon: ClipboardListIcon },
+        { id: 'insights', label: 'AI Insights', icon: BrainCircuitIcon }, // ** Added back AI Insights **
+        { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
-
     return (
-        <div className="bg-white border-t border-gray-200 shadow-t-md flex justify-around">
-            {navItems.map(item => {
-                const isActive = currentScreen === item.id;
-                const isProFeature = item.pro && restaurant.subscription !== 'pro';
-                return (
-                    <button 
-                        key={item.id} 
-                        onClick={() => setCurrentScreen(item.id)}
-                        className={`flex flex-col items-center justify-center w-full pt-2 pb-1 text-xs ${isActive ? 'text-indigo-600' : 'text-gray-500'} hover:bg-indigo-50`}
+         <div className="bg-white shadow-t sticky bottom-0 border-t z-10 overflow-x-auto"> {/* Allow scrolling for more tabs */}
+            <div className="flex justify-between min-w-full px-2">
+                {navItems.map(item => (
+                    <button
+                        key={item.id}
+                        onClick={() => setActiveScreen(item.id)}
+                        className={`flex flex-col items-center justify-center min-w-[60px] pt-3 pb-2 transition duration-300 ${
+                            activeScreen === item.id ? 'text-primary' : 'text-gray-500 hover:text-primary'
+                        }`}
+                        disabled={item.pro && !isPro}
                     >
-                        {item.icon}
-                        <span className="mt-1">{item.label} {isProFeature && "(Pro)"}</span>
-                        {isActive && <div className="w-8 h-1 bg-indigo-600 rounded-full mt-1"></div>}
+                         <div className="relative"> {item.pro && !isPro && <LockIcon className="absolute -top-1 -right-1 h-3 w-3 text-gray-400" />} <item.icon className={`h-6 w-6 mb-1 ${item.pro && !isPro ? 'text-gray-300' : ''}`} /> </div>
+                         <span className={`text-[10px] ${item.pro && !isPro ? 'text-gray-300' : ''}`}>{item.label}</span>
                     </button>
-                );
-            })}
+                ))}
+            </div>
         </div>
-    );
-}
+     );
+};
 
 
-
+// --- Icon Components ---
+const Icon = ({ children }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>;
+const PlusIcon = () => <Icon><path d="M5 12h14"/><path d="M12 5v14"/></Icon>;
+const AlertTriangleIcon = () => <Icon><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></Icon>;
+const LogOutIcon = () => <Icon><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Icon>;
+const LockIcon = () => <Icon><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Icon>;
+const TrashIcon = () => <Icon><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></Icon>;
+const LayoutDashboardIcon = () => <Icon><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></Icon>;
+const ShoppingCartIcon = () => <Icon><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></Icon>;
+const BarChartIcon = () => <Icon><line x1="12" x2="12" y1="20" y2="10"/><line x1="18" x2="18" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="16"/></Icon>;
+const SettingsIcon = () => <Icon><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 0 2l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1 0-2l-.15-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></Icon>;
+const SendIcon = () => <Icon><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></Icon>;
+const Share2Icon = () => <Icon><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></Icon>;
+const UsersIcon = () => <Icon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>;
+const SparklesIcon = () => <Icon><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></Icon>;
+const SpinnerIcon = () => <Icon><path d="M21 12a9 9 0 1 1-6.219-8.56"/></Icon>;
+const ClipboardIcon = () => <Icon><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></Icon>;
+const BrainCircuitIcon = () => <Icon><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588 3 3 0 1 0 5.997-.125 4 4 0 0 0 2.526-5.77 4 4 0 0 0-.556-6.588Z"/><path d="M17.125 7.375A3 3 0 1 0 14 10.5a4.002 4.002 0 0 0 4.125 2.125 4 4 0 0 0 3.75-3.75 3 3 0 1 0-4.75-1.5Z"/><path d="M6.25 15.75a3 3 0 1 0-3.375-3.375 4 4 0 0 0-1.75 4.75 4 4 0 0 0 5.125 1.75Z"/><path d="M12 14v1"/><path d="M12 9v1"/><path d="M14.5 12.5h-1"/><path d="M9.5 12.5h1"/><path d="m10 14 1-1"/><path d="m14 10-1 1"/><path d="m14 14 1 1"/><path d="m10 10-1-1"/><path d="M17.5 7.5h1"/><path d="M17.5 12.5h-1"/><path d="m15.5 10.5 1-1"/><path d="m19.5 8.5-1 1"/><path d="M6.5 18.5v-1"/><path d="M9.5 15.5v1"/><path d="M8 17h1"/><path d="M5 17h-1"/><path d="m7 16-1-1"/><path d="m10 19-1-1"/></Icon>;
+const MessageSquareIcon = () => <Icon><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></Icon>;
+const GiftIcon = () => <Icon><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></Icon>;
+const ClipboardListIcon = () => <Icon><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></Icon>;
