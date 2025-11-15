@@ -99,8 +99,6 @@ export default function App() {
     const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false);
 
     const fetchRestaurantData = useCallback(async (currentUser) => {
-        console.log("fetchRestaurantData start for user:", currentUser?.uid || "null");
-
         if (!currentUser) {
             setUser(null);
             setRestaurant(null);
@@ -121,16 +119,22 @@ export default function App() {
                     cuisineType: data.cuisineType || '', targetAudience: data.targetAudience || '',
                     dishes: data.dishes || [], phone: data.phone || '', logoUrl: data.logoUrl || '',
                     themeColor: data.themeColor || '#4f46e5',
-                    // ** NEW: Default Food Cost % **
-                    foodCostPercent: data.foodCostPercent || 35, 
+                    foodCostPercent: data.foodCostPercent || 35,
+                    aggregatorCommission: data.aggregatorCommission || 25,
                  };
+                 restData.dishes = restData.dishes.map(d => ({...d, cost: d.cost || 100}));
             } else {
                 restData = {
                     owner: currentUser.displayName || 'Restaurant Owner', name: `${currentUser.displayName || 'My'}'s Place`,
                     subscription: 'free',
-                    dishes: [{ id: 'dish1', name: 'Chicken Biryani' }, { id: 'dish2', name: 'Paneer Butter Masala' }, { id: 'dish3', name: 'Masala Dosa' }],
+                    dishes: [
+                        { id: 'dish1', name: 'Chicken Biryani', cost: 120 },
+                        { id: 'dish2', name: 'Paneer Butter Masala', cost: 100 },
+                        { id: 'dish3', name: 'Masala Dosa', cost: 40 }
+                    ],
                     phone: '', cuisineType: '', targetAudience: '', logoUrl: '', themeColor: '#4f46e5',
-                    foodCostPercent: 35, // Default average food cost
+                    foodCostPercent: 35,
+                    aggregatorCommission: 25,
                     createdAt: Timestamp.now(),
                 };
                 await setDoc(restaurantRef, restData);
@@ -211,7 +215,7 @@ export default function App() {
         marketing: <MarketingScreen restaurant={restaurant} userId={user.uid}/>,
         orders: <LiveOrdersScreen restaurant={restaurant} userId={user.uid} />,
         inventory: <InventoryScreen restaurant={restaurant} userId={user.uid} />,
-        insights: <AIInsightsScreen restaurant={restaurant} userId={user.uid} />, // Updated with Growth Features
+        insights: <AIInsightsScreen restaurant={restaurant} userId={user.uid} />,
         settings: <SettingsScreen user={user} restaurant={restaurant} updateRestaurant={updateRestaurant} />,
     }[activeScreen];
 
@@ -269,30 +273,26 @@ const Header = ({ title, logoUrl }) => (
 
 
 const DashboardScreen = ({ restaurant, userId }) => {
-    const currentUserId = userId;
-    const currentDishes = restaurant?.dishes || [];
-
     const [isSalesModalOpen, setSalesModalOpen] = useState(false);
     const [predictions, setPredictions] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loadingPredictions, setLoadingPredictions] = useState(true);
     const [predictionError, setPredictionError] = useState('');
     const [lowStockItems, setLowStockItems] = useState([]);
+    const [weeklySavings, setWeeklySavings] = useState({ wastage: 0, commission: 0, total: 0 });
+    const [loadingSavings, setLoadingSavings] = useState(true);
 
     const calculatePredictions = useCallback(async () => {
-        setLoading(true);
+        setLoadingPredictions(true);
         setPredictionError('');
         setPredictions([]);
-        if (!currentUserId || !currentDishes || currentDishes.length === 0) {
-            setLoading(false);
-            return;
-        }
+        if (!userId || !restaurant.dishes || restaurant.dishes.length === 0) { setLoadingPredictions(false); return; }
         try {
             const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             const sevenDaysAgoMillis = Timestamp.fromDate(sevenDaysAgo).toMillis();
-            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', currentUserId));
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const querySnapshot = await getDocs(salesQuery);
             const salesData = {};
-            currentDishes.forEach(d => salesData[d.id] = []);
+            restaurant.dishes.forEach(d => salesData[d.id] = []);
             querySnapshot.forEach(doc => {
                 const data = doc.data();
                 if (data.date?.toMillis && data.date.toMillis() >= sevenDaysAgoMillis && salesData[data.dishId] && typeof data.quantitySold === 'number') {
@@ -301,7 +301,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
             });
             const hasSalesData = Object.values(salesData).some(arr => arr.length > 0);
             if (hasSalesData) {
-                const newPredictions = currentDishes.map(dish => {
+                const newPredictions = restaurant.dishes.map(dish => {
                     const dishSales = salesData[dish.id];
                     let prediction = 5, confidence = 20, totalSold = 0, totalWasted = 0;
                     if (dishSales && dishSales.length > 0) {
@@ -317,12 +317,8 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 });
                 setPredictions(newPredictions);
             }
-        } catch (error) {
-            console.error("Dashboard: Failed to calculate predictions:", error);
-            setPredictionError("Error calculating predictions.");
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { console.error("Dashboard: Failed to calculate predictions:", error); setPredictionError("Error calculating predictions."); }
+        finally { setLoadingPredictions(false); }
     }, [userId, restaurant.dishes]);
 
     useEffect(() => {
@@ -332,9 +328,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
             const lowItems = [];
             querySnapshot.forEach((doc) => {
                 const item = doc.data();
-                if (item.currentStock <= item.lowStockThreshold) {
-                    lowItems.push(item);
-                }
+                if (item.currentStock <= item.lowStockThreshold) { lowItems.push(item); }
             });
             setLowStockItems(lowItems);
         }, (error) => {
@@ -343,17 +337,46 @@ const DashboardScreen = ({ restaurant, userId }) => {
         return () => unsubscribe();
     }, [userId]);
 
+    const calculateWeeklySavings = useCallback(async () => {
+        setLoadingSavings(true);
+        let totalWastageSavings = 0;
+        let totalCommissionSavings = 0;
+        
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+            const dishCostMap = new Map(restaurant.dishes.map(d => [d.id, d.cost || 0]));
+
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId), where('date', '>=', sevenDaysAgoTimestamp));
+            const salesSnapshot = await getDocs(salesQuery);
+            salesSnapshot.forEach(doc => {
+                const data = doc.data();
+                const cost = dishCostMap.get(data.dishId) || 0;
+                totalWastageSavings += (data.quantityWasted || 0) * cost;
+            });
+
+            const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('createdAt', '>=', sevenDaysAgoTimestamp));
+            const ordersSnapshot = await getDocs(ordersQuery);
+            let totalOrderValue = 0;
+            ordersSnapshot.forEach(doc => { totalOrderValue += doc.data().total || 0; });
+            const commissionRate = restaurant.aggregatorCommission / 100 || 0.25;
+            totalCommissionSavings = totalOrderValue * commissionRate;
+
+            setWeeklySavings({ wastage: Math.round(totalWastageSavings), commission: Math.round(totalCommissionSavings), total: Math.round(totalWastageSavings + totalCommissionSavings) });
+        } catch (error) { console.error("Error calculating weekly savings:", error); }
+        finally { setLoadingSavings(false); }
+    }, [userId, restaurant.dishes, restaurant.aggregatorCommission]);
+
     useEffect(() => {
         calculatePredictions();
-    }, [calculatePredictions]);
+        calculateWeeklySavings();
+    }, [calculatePredictions, calculateWeeklySavings]);
 
     const sendWhatsAppReport = () => {
         if (!restaurant.phone) { alert("Please add your WhatsApp phone number in the Settings tab first."); return; }
         let reportText = `*SmartChef AI - Tomorrow's Forecast*\n\n`;
-        predictions.forEach(item => {
-            reportText += `*${item.name}*: ${item.prediction} plates\n`;
-            if (item.wastage) { reportText += `_⚠️ High Wastage Alert (${item.wastagePercent}%)_\n`; }
-        });
+        predictions.forEach(item => { reportText += `*${item.name}*: ${item.prediction} plates\n`; if (item.wastage) { reportText += `_⚠️ High Wastage Alert (${item.wastagePercent}%)_\n`; } });
         reportText += `\nReply with corrections if needed (e.g., Biryani 25, Paneer 15)`;
         const encodedText = encodeURIComponent(reportText);
         const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
@@ -364,22 +387,32 @@ const DashboardScreen = ({ restaurant, userId }) => {
 
     return (
         <div>
-            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center">
-                    <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span>
-                </button>
-                <button onClick={sendWhatsAppReport} disabled={loading || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
-                    <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span>
-                </button>
+            <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-green-500">
+                <h2 className="text-xl font-bold text-gray-800 mb-2">Weekly Savings</h2>
+                {loadingSavings ? <p>Calculating savings...</p> : (
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center text-lg"> <span className="text-gray-600">Commission Saved:</span> <span className="font-bold text-green-600">₹{weeklySavings.commission.toLocaleString()}</span> </div>
+                         <div className="flex justify-between items-center text-lg"> <span className="text-gray-600">Wastage Reduced:</span> <span className="font-bold text-green-600">₹{weeklySavings.wastage.toLocaleString()}</span> </div>
+                        <hr className="my-1"/>
+                         <div className="flex justify-between items-center text-xl"> <span className="font-bold text-gray-800">Total Saved:</span> <span className="font-extrabold text-green-700">₹{weeklySavings.total.toLocaleString()}</span> </div>
+                    </div>
+                )}
             </div>
+
+            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
+                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center"> <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span> </button>
+                <button onClick={sendWhatsAppReport} disabled={loadingPredictions || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"> <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span> </button>
+            </div>
+
             {lowStockItems.length > 0 && (
                 <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow mb-4" role="alert">
                     <h3 className="font-bold text-lg flex items-center"> <AlertTriangleIcon className="h-6 w-6 mr-2"/> Low Stock Alerts! </h3>
                     <ul className="list-disc list-inside mt-2 text-sm"> {lowStockItems.map(item => ( <li key={item.id}> <strong>{item.name}:</strong> Only {item.currentStock} {item.unit} left. (Threshold is {item.lowStockThreshold}) </li> ))} </ul>
                 </div>
             )}
+
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
-            {loading ? ( <p>Calculating predictions...</p> )
+            {loadingPredictions ? ( <p>Calculating predictions...</p> )
             : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error: </strong> <span className="block sm:inline">{predictionError}</span> </div> )
             : predictions.length > 0 ? (
                 <div className="space-y-3">
@@ -394,12 +427,11 @@ const DashboardScreen = ({ restaurant, userId }) => {
              ) : (
                 <div className="bg-white p-4 rounded-lg shadow text-center">
                     <p className="text-gray-600">No predictions to show.</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                        {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."}
-                    </p>
+                    <p className="text-sm text-gray-500 mt-1"> {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."} </p>
                 </div>
              )}
-            {isSalesModalOpen && ( <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={calculatePredictions}/> )}
+
+            {isSalesModalOpen && ( <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={() => { calculatePredictions(); calculateWeeklySavings(); }}/> )}
         </div>
     );
 };
@@ -433,7 +465,8 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
                 }
             }
             await batch.commit(); onSave(); onClose();
-        } catch (error) { console.error("Error saving sales data: ", error); alert("Failed to save sales data."); } finally { setIsSaving(false); }
+        } catch (error) { console.error("Error saving sales data: ", error); alert("Failed to save sales data."); }
+        finally { setIsSaving(false); }
     };
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -518,12 +551,22 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
             <button onClick={addTestOrder} className="w-full bg-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-600 transition duration-300 flex items-center justify-center mb-4"> Add Test Order (Adds Points) </button>
              {loading ? <p>Loading live orders...</p> : (
                 orders.length === 0 ? ( <p className="text-center text-gray-500 mt-8">No live orders yet.</p> )
-                : ( <div className="space-y-3"> {orders.map(order => ( <div key={order.id} className="bg-white p-4 rounded-lg shadow">
-                             <div className="flex justify-between items-center mb-2"> <div> <h3 className="font-bold text-lg">{order.customerName}</h3> {order.customerPhone && <p className="text-sm text-gray-500">{order.customerPhone}</p>} </div> <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${ order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800' }`}> {order.status} </span> </div>
+                : ( <div className="space-y-3">
+                     {orders.map(order => (
+                         <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+                             <div className="flex justify-between items-center mb-2">
+                                <div> <h3 className="font-bold text-lg">{order.customerName}</h3> {order.customerPhone && <p className="text-sm text-gray-500">{order.customerPhone}</p>} </div>
+                                <span className={`font-semibold px-2 py-0.5 rounded-full text-sm ${ order.status === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800' }`}> {order.status} </span>
+                             </div>
                              <ul className="list-disc list-inside text-gray-700 mb-2"> {(order.items || []).map((item, index) => ( <li key={`${item.name}-${index}`}>{item.quantity}x {item.name}</li> ))} </ul>
                              <p className="font-bold text-right mb-3">Total: ₹{order.total}</p>
-                             <div className="flex space-x-2"> {order.status === 'pending' && ( <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button> )} {order.status === 'accepted' && ( <> <button className="w-1/2 bg-blue-500 text-white py-2 rounded-md">Book Delivery (WIP)</button> <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-1/2 bg-primary text-on-primary py-2 rounded-md">Mark Completed</button> </> )} </div>
-                         </div> ))} </div> )
+                             <div className="flex space-x-2">
+                                {order.status === 'pending' && ( <button onClick={() => updateOrderStatus(order.id, 'accepted')} className="w-full bg-green-500 text-white py-2 rounded-md">Accept</button> )}
+                                {order.status === 'accepted' && ( <> <button className="w-1/2 bg-blue-500 text-white py-2 rounded-md">Book Delivery (WIP)</button> <button onClick={() => updateOrderStatus(order.id, 'completed')} className="w-1/2 bg-primary text-on-primary py-2 rounded-md">Mark Completed</button> </> )}
+                             </div>
+                         </div>
+                     ))}
+                    </div> )
             )}
         </div>
     );
@@ -557,7 +600,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
     const generateSocialMediaPost = async (promptTopic) => {
         const finalTopic = promptTopic || topic;
         if (!finalTopic.trim()) { setError('Please enter a topic.'); return; }
-        const systemPrompt = `Act as a creative restaurant marketing expert. Restaurant: ${restaurant.name}, Cuisine: ${restaurant.cuisineType || 'delicious food'}, Target: ${restaurant.targetAudience || 'food lovers'}. Platform: ${platform}. Use emojis & hashtags.`;
+        const systemPrompt = `Act as a creative restaurant marketing expert. Restaurant: ${restaurant.name}, Cuisine: ${restaurant.cuisineType || 'delicious food'}, Target: ${restaurant.targetAudience || 'local food lovers'}. Platform: ${platform}. Use emojis & hashtags.`;
         const userQuery = `Generate a post about: ${finalTopic}.`;
         const result = await callGeminiAPI(systemPrompt, userQuery);
         if (result) { setGeneratedPost(result); setTopic(finalTopic); }
@@ -568,7 +611,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
         const dayOfWeek = days[new Date().getDay()];
         const popularDish = restaurant.dishes[0]?.name || 'our delicious food';
         let autoTopic = `A special offer for ${dayOfWeek}!`;
-        if (dayOfWeek === 'Friday' || dayOfWeek === 'Saturday') { autoTopic = `Weekend vibes! Enjoy ${popularDish} at ${restaurant.name}!`; }
+        if (dayOfWeek === 'Friday' || dayOfWeek === 'Saturday') { autoTopic = `It's the weekend! Time to enjoy ${popularDish} at ${restaurant.name}!`; }
         else if (dayOfWeek === 'Monday') { autoTopic = `Start your week right with a meal from ${restaurant.name}.`; }
         generateSocialMediaPost(autoTopic);
     };
@@ -607,7 +650,6 @@ const MarketingScreen = ({ restaurant, userId }) => {
 
 const InventoryScreen = ({ restaurant, userId }) => {
     const [inventory, setInventory] = useState([]);
-    const [checklist, setChecklist] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newItem, setNewItem] = useState({ name: '', currentStock: '', unit: 'kg', lowStockThreshold: '' });
     const [showAddItem, setShowAddItem] = useState(false);
@@ -636,12 +678,20 @@ const InventoryScreen = ({ restaurant, userId }) => {
     useEffect(() => {
         const todayStr = new Date().toISOString().split('T')[0];
         const logQuery = query(collection(db, 'cleanliness_logs'), where('userId', '==', userId), where('date', '==', todayStr), limit(1));
-        getDocs(logQuery).then(snapshot => {
-            if (!snapshot.empty) {
-                setLastLog(snapshot.docs[0].data());
-                setCleanlinessTasks(tasks => tasks.map(task => ({ ...task, completed: true })));
+        const unsubscribe = onSnapshot(logQuery, (snapshot) => {
+             if (!snapshot.empty) {
+                const logData = snapshot.docs[0].data();
+                setLastLog(logData);
+                setCleanlinessTasks(tasks => tasks.map(task => ({ 
+                    ...task, 
+                    completed: logData.tasks?.includes(task.name) || false 
+                })));
+            } else {
+                setLastLog(null);
+                setCleanlinessTasks(tasks => tasks.map(task => ({ ...task, completed: false })));
             }
         });
+        return () => unsubscribe();
     }, [userId]);
 
     const handleItemChange = (e) => { const { name, value } = e.target; setNewItem(prev => ({ ...prev, [name]: value })); };
@@ -684,12 +734,15 @@ const InventoryScreen = ({ restaurant, userId }) => {
                  <div className="space-y-2"> {cleanlinessTasks.map(task => ( <label key={task.id} className={`flex items-center space-x-3 ${lastLog ? 'cursor-not-allowed' : ''}`}> <input type="checkbox" checked={task.completed} disabled={!!lastLog} onChange={() => handleTaskToggle(task.id)} className="h-5 w-5 rounded border-gray-300 text-primary ring-primary disabled:opacity-50"/> <span className={`text-gray-700 ${ task.completed ? 'line-through text-gray-400' : ''}`}> {task.name} </span> </label> ))} </div>
                  {lastLog ? ( <p className="text-center text-sm text-green-600 font-semibold mt-4">Log submitted for today by {lastLog.completedBy.split(' ')[0]}!</p> ) : ( <button onClick={submitCleanlinessLog} disabled={logLoading || cleanlinessTasks.some(t => !t.completed)} className="w-full mt-4 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300 disabled:opacity-50"> {logLoading ? 'Submitting...' : 'Submit Log for Today'} </button> )}
             </div>
+            <div className="bg-white p-4 rounded-lg shadow text-center opacity-50">
+                 <h3 className="font-bold text-lg mb-2">AI Vendor & Wastage Insights (Coming Soon)</h3>
+                 <p className="text-sm text-gray-600"> Future Pro Feature: Link inventory items to dishes to automatically track raw material wastage and get AI-powered vendor purchasing suggestions. </p>
+            </div>
         </div>
     );
 };
 
 
-// ** UPDATED AIInsightsScreen with CFO features **
 const AIInsightsScreen = ({ restaurant, userId }) => {
     const [salesAnalysis, setSalesAnalysis] = useState('');
     const [feedbackSummary, setFeedbackSummary] = useState('');
@@ -701,15 +754,18 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
     const [loadingOffer, setLoadingOffer] = useState(false);
     const [error, setError] = useState('');
     
-    // ** NEW: Financial States **
     const [totalRevenue, setTotalRevenue] = useState(0);
+    const [totalCost, setTotalCost] = useState(0);
     const [estimatedProfit, setEstimatedProfit] = useState(0);
     const [loadingFinancials, setLoadingFinancials] = useState(true);
     const [cfoAdvice, setCfoAdvice] = useState('');
     const [loadingCfo, setLoadingCfo] = useState(false);
 
+    const dishCostMap = useMemo(() => {
+        return new Map((restaurant.dishes || []).map(d => [d.id, d.cost || 0]));
+    }, [restaurant.dishes]);
+
     useEffect(() => {
-        // Fetch Customers (simplified to avoid index)
         setLoadingCustomers(true);
         const customersQuery = query(collection(db, 'customers'), where('userId', '==', userId));
         const unsubscribeCust = onSnapshot(customersQuery, (snapshot) => {
@@ -718,33 +774,36 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
             setCustomers(list); setLoadingCustomers(false);
         });
 
-        // ** NEW: Fetch Sales for Financials **
         setLoadingFinancials(true);
+        let revenue = 0;
+        let costOfGoods = 0;
+        const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('status', '==', 'completed'));
+        const getRevenue = getDocs(ordersQuery).then(snapshot => {
+            snapshot.forEach(doc => { revenue += doc.data().total || 0; });
+        });
+
         const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
-        // Real-time listener for sales to update revenue instantly
-        const unsubscribeSales = onSnapshot(salesQuery, (snapshot) => {
-            let rev = 0;
-            // Use current restaurant data for prices (simplified assumption: price is not stored in daily_sales, we estimate)
-            // In a real app, daily_sales should store 'totalAmount'. Here we use 'quantitySold'.
-            // Let's assume average dish price of 200 for calculation if not available
+        const getCost = getDocs(salesQuery).then(snapshot => {
             snapshot.forEach(doc => {
                 const data = doc.data();
-                // Simple revenue estimation: quantity * 200 (since price isn't in daily_sales MVP schema)
-                // A better way: fetch dishes price. For MVP, we'll use a rough estimate or live_orders if we tracked them there.
-                // Actually, let's use 'live_orders' for revenue as it has 'total'.
-                // But daily_sales has the historical data.
-                // Let's estimate revenue from daily_sales * 250 (avg price) for now to show functionality.
-                rev += (data.quantitySold || 0) * 200; 
+                const cost = dishCostMap.get(data.dishId) || 0;
+                costOfGoods += (data.quantitySold || 0) * cost;
             });
-            setTotalRevenue(rev);
-            const foodCost = restaurant.foodCostPercent || 35;
-            const profit = rev * ((100 - foodCost) / 100);
-            setEstimatedProfit(profit);
+        });
+
+        Promise.all([getRevenue, getCost]).then(() => {
+            setTotalRevenue(revenue);
+            setTotalCost(costOfGoods);
+            setEstimatedProfit(revenue - costOfGoods);
+            setLoadingFinancials(false);
+        }).catch(err => {
+            console.error("Error fetching financials: ", err);
+            setError("Could not load financial data.");
             setLoadingFinancials(false);
         });
 
-        return () => { unsubscribeCust(); unsubscribeSales(); };
-    }, [userId, restaurant.foodCostPercent]);
+        return () => { unsubscribeCust(); };
+    }, [userId, dishCostMap]);
 
     const callGeminiAPI = async (systemPrompt, userQuery) => {
         setError('');
@@ -761,80 +820,112 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
         } catch (err) { console.error('Gemini Error:', err); setError(`AI Error: ${err.message}`); return null; }
     };
     
-    // ** NEW: AI CFO Advisor **
     const generateCfoAdvice = async () => {
         setLoadingCfo(true); setCfoAdvice('');
-        const systemPrompt = `You are an expert Restaurant CFO and Business Consultant. Analyze the restaurant's basic financial data and provide 3 strategic recommendations: 1) Profit Optimization, 2) Expansion Readiness (can they afford a new branch?), 3) A trending menu item suggestion based on their cuisine. Be professional yet encouraging.`;
-        const userQuery = `Restaurant: ${restaurant.name} (${restaurant.cuisineType}). Total Estimated Revenue (all time): ₹${totalRevenue}. Estimated Gross Profit: ₹${Math.round(estimatedProfit)} (Margin ${100 - (restaurant.foodCostPercent || 35)}%). Provide strategic business advice.`;
+        const profitMargin = totalRevenue > 0 ? Math.round((estimatedProfit / totalRevenue) * 100) : 0;
+        const systemPrompt = `You are an expert Restaurant CFO and Business Consultant. Analyze the restaurant's financial data and provide 3 strategic recommendations: 1) Profit Optimization (based on margin), 2) Expansion Readiness (can they afford a new branch?), 3) A trending menu item suggestion based on their cuisine. Be professional yet encouraging.`;
+        const userQuery = `Restaurant: ${restaurant.name} (${restaurant.cuisineType}). Total Revenue: ₹${totalRevenue.toLocaleString()}. Total Cost of Goods Sold: ₹${totalCost.toLocaleString()}. Total Gross Profit: ₹${estimatedProfit.toLocaleString()} (Margin: ${profitMargin}%). Provide strategic business advice.`;
         const result = await callGeminiAPI(systemPrompt, userQuery);
         if (result) setCfoAdvice(result);
         setLoadingCfo(false);
     };
 
-    const generateSalesAnalysis = async () => { /* ... same as before ... */
-        setLoadingAnalysis(true); setSalesAnalysis('');
+    const generateSalesAnalysis = async () => {
+        setLoadingAnalysis(true); setSalesAnalysis(''); setError('');
         try {
             const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const thirtyDaysAgoTimestamp = Timestamp.fromDate(thirtyDaysAgo);
             const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const querySnapshot = await getDocs(salesQuery);
-            const salesSummary = {}; (restaurant.dishes || []).forEach(d => salesSummary[d.id] = { name: d.name, sold: 0, wasted: 0 });
+            const salesSummary = {};
+            (restaurant.dishes || []).forEach(d => salesSummary[d.id] = { name: d.name, sold: 0, wasted: 0 });
             let salesFound = false;
-            querySnapshot.forEach(doc => { const data = doc.data(); if(data.date && data.date.toMillis() >= Timestamp.fromDate(thirtyDaysAgo).toMillis()) { if (salesSummary[data.dishId]) { salesSummary[data.dishId].sold += (data.quantitySold || 0); salesSummary[data.dishId].wasted += (data.quantityWasted || 0); salesFound = true; } } });
-            let dataSummary = "Last 30 Days Sales Data:\n"; Object.values(salesSummary).forEach(item => { const prepared = item.sold + item.wasted; const wastagePerc = prepared > 0 ? Math.round((item.wasted / prepared) * 100) : 0; dataSummary += `- ${item.name}: Sold ${item.sold}, Wasted ${item.wasted} (${wastagePerc}% wastage)\n`; });
+            querySnapshot.forEach(doc => { 
+                const data = doc.data(); 
+                if(data.date && data.date.toMillis() >= thirtyDaysAgoTimestamp.toMillis()) {
+                    if (salesSummary[data.dishId]) { salesSummary[data.dishId].sold += (data.quantitySold || 0); salesSummary[data.dishId].wasted += (data.quantityWasted || 0); salesFound = true; }
+                }
+            });
+            let dataSummary = "Last 30 Days Sales Data:\n";
+            Object.values(salesSummary).forEach(item => { const prepared = item.sold + item.wasted; const wastagePerc = prepared > 0 ? Math.round((item.wasted / prepared) * 100) : 0; dataSummary += `- ${item.name}: Sold ${item.sold}, Wasted ${item.wasted} (${wastagePerc}% wastage)\n`; });
             if (!salesFound) dataSummary = "No sales data found for the last 30 days.";
-            const systemPrompt = `You are a helpful AI assistant...`; const userQuery = `Analyze...:\n\n${dataSummary}`;
-            const result = await callGeminiAPI(systemPrompt, userQuery); if (result) setSalesAnalysis(result);
-        } catch (err) { setError("Failed to fetch sales data."); } finally { setLoadingAnalysis(false); }
+            const systemPrompt = `You are a helpful AI assistant for restaurant owners...`;
+            const userQuery = `Analyze...:\n\n${dataSummary}`;
+            const analysisResult = await callGeminiAPI(systemPrompt, userQuery);
+            if (analysisResult) setSalesAnalysis(analysisResult);
+        } catch (err) { console.error("Error generating sales analysis:", err); setError("Failed to fetch/analyze sales data."); }
+        finally { setLoadingAnalysis(false); }
     };
 
-    const generateFeedbackSummary = async () => { /* ... same as before ... */
-        setLoadingFeedback(true); setFeedbackSummary('');
+    const addTestFeedback = async () => {
+        const testFeedbacks = [ { rating: 5, comment: "Biryani was amazing!" }, { rating: 3, comment: "Service was slow." } ];
+        const randomFeedback = testFeedbacks[Math.floor(Math.random() * testFeedbacks.length)];
+        try { await addDoc(collection(db, 'feedback'), { userId: userId, rating: randomFeedback.rating, comment: randomFeedback.comment, createdAt: Timestamp.now(), source: 'Test Data' }); alert("Test feedback added!"); }
+        catch (error) { console.error("Error adding test feedback:", error); alert("Failed to add feedback."); }
+    };
+    
+    const generateFeedbackSummary = async () => {
+        setLoadingFeedback(true); setFeedbackSummary(''); setError('');
         try {
             const feedbackQuery = query(collection(db, 'feedback'), where('userId', '==', userId), limit(30));
             const querySnapshot = await getDocs(feedbackQuery);
             if (querySnapshot.empty) { setFeedbackSummary("No feedback found."); setLoadingFeedback(false); return; }
-            let feedbackText = "Recent Feedback:\n"; querySnapshot.forEach(doc => { const data = doc.data(); feedbackText += `- ${data.rating}/5: ${data.comment}\n`; });
-            const systemPrompt = `Summarize customer feedback...`; const userQuery = `Summarize:\n\n${feedbackText}`;
-            const result = await callGeminiAPI(systemPrompt, userQuery); if (result) setFeedbackSummary(result);
-        } catch (err) { setError("Failed to fetch feedback."); } finally { setLoadingFeedback(false); }
+            let feedbackList = [];
+            querySnapshot.forEach(doc => feedbackList.push(doc.data()));
+            feedbackList.sort((a,b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0));
+            let feedbackText = "Recent Feedback:\n";
+            feedbackList.forEach(data => { feedbackText += `- ${data.rating}/5: ${data.comment}\n`; });
+            const systemPrompt = `Summarize customer feedback...`;
+            const userQuery = `Summarize:\n\n${feedbackText}`;
+            const summaryResult = await callGeminiAPI(systemPrompt, userQuery);
+            if (summaryResult) setFeedbackSummary(summaryResult);
+        } catch (err) { console.error("Error generating feedback summary:", err); setError("Failed to fetch/analyze feedback."); }
+        finally { setLoadingFeedback(false); }
+    };
+    
+    const sendInsightsToWhatsApp = (reportContent, reportType) => {
+        if (!restaurant.phone) { alert("Add phone in Settings."); return; }
+        const message = `*${type} Report*\n\n${reportContent}`;
+        const encodedText = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
+        window.open(whatsappUrl, '_blank');
     };
 
-    // ... (addTestFeedback, sendInsightsToWhatsApp, handleGenerateOffer, sendOfferToCustomer identical to before)
-    const addTestFeedback = async () => { /* ... */ 
-        const testFeedbacks = [ { rating: 5, comment: "Great food!" }, { rating: 3, comment: "Okay service." } ];
-        const randomFeedback = testFeedbacks[Math.floor(Math.random() * testFeedbacks.length)];
-        await addDoc(collection(db, 'feedback'), { userId, ...randomFeedback, createdAt: Timestamp.now() }); alert("Test feedback added!");
-    };
-    const sendInsightsToWhatsApp = (content, type) => { /* ... */ 
-        if (!restaurant.phone) { alert("Add phone in Settings."); return; }
-        const url = `https://wa.me/${restaurant.phone}?text=${encodeURIComponent(`*${type}*\n\n${content}`)}`; window.open(url, '_blank');
-    };
     const handleGenerateOffer = async (customer) => {
-        setLoadingOffer(true); setOfferModal({ isOpen: true, customer, message: 'Generating...' });
-        const res = await callGeminiAPI(`Write a WhatsApp offer for a customer...`, `Offer for ${customer.name}, ${customer.loyaltyPoints} points.`);
-        setOfferModal({ isOpen: true, customer, message: res || "Failed." }); setLoadingOffer(false);
+        setLoadingOffer(true);
+        setOfferModal({ isOpen: true, customer, message: 'Generating...' });
+        const systemPrompt = `You are a friendly restaurant marketing assistant...`;
+        const userQuery = `Offer for ${customer.name}, ${customer.loyaltyPoints} points.`;
+        const result = await callGeminiAPI(systemPrompt, userQuery);
+        if (result) { setOfferModal({ isOpen: true, customer, message: result }); }
+        else { setOfferModal({ isOpen: true, customer, message: `Failed to generate offer.` }); }
+        setLoadingOffer(false);
     };
-    const sendOfferToCustomer = (customer, msg) => {
-        if (!customer.phone) return; window.open(`https://wa.me/${customer.phone}?text=${encodeURIComponent(msg)}`, '_blank'); setOfferModal({ isOpen: false, customer: null, message: '' });
+    
+    const sendOfferToCustomer = (customer, message) => {
+        if (!customer.phone || !message) { alert("Customer phone or message is missing."); return; }
+        const encodedText = encodeURIComponent(message);
+        const whatsappUrl = `https://wa.me/${customer.phone}?text=${encodedText}`;
+        window.open(whatsappUrl, '_blank');
+        setOfferModal({ isOpen: false, customer: null, message: '' });
     };
 
      return (
         <div>
             {error && <p className="text-red-600 text-sm mb-3 bg-red-100 p-2 rounded">{error}</p>}
             
-            {/* ** NEW: Financial Health & CFO Section ** */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-green-500">
                 <h3 className="font-bold text-lg mb-3 text-gray-800">💰 Financial Health (AI CFO)</h3>
                 {loadingFinancials ? <p className="text-sm text-gray-500">Calculating financials...</p> : (
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div className="bg-green-50 p-3 rounded-lg">
-                            <p className="text-xs text-gray-500 uppercase font-semibold">Est. Revenue</p>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Total Revenue</p>
                             <p className="text-xl font-bold text-green-700">₹{totalRevenue.toLocaleString()}</p>
                         </div>
                         <div className="bg-blue-50 p-3 rounded-lg">
-                            <p className="text-xs text-gray-500 uppercase font-semibold">Est. Profit</p>
-                            <p className="text-xl font-bold text-blue-700">₹{Math.round(estimatedProfit).toLocaleString()}</p>
-                            <p className="text-xs text-gray-400">(@ {100 - (restaurant.foodCostPercent || 35)}% Margin)</p>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Gross Profit</p>
+                            <p className="text-xl font-bold text-blue-700">₹{estimatedProfit.toLocaleString()}</p>
+                            <p className="text-xs text-gray-400">(Est. {totalRevenue > 0 ? Math.round((estimatedProfit/totalRevenue)*100) : 0}% Margin)</p>
                         </div>
                     </div>
                 )}
@@ -843,8 +934,7 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
                 </button>
                 {cfoAdvice && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{cfoAdvice}</pre> </div> )}
             </div>
-
-            {/* Sales Analysis Section */}
+            
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Sales Analysis (30 Days)</h3>
                 <button onClick={generateSalesAnalysis} disabled={loadingAnalysis} className="w-full bg-primary text-on-primary font-bold py-2 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center disabled:opacity-50 mb-3">
@@ -853,7 +943,6 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
                 {salesAnalysis && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{salesAnalysis}</pre> <button onClick={() => sendInsightsToWhatsApp(salesAnalysis, "Sales Analysis")} className="w-full mt-3 bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <SendIcon className="h-5 w-5 mr-2" /> Send to Owner </button> </div> )}
             </div>
 
-            {/* Customer Feedback Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                  <h3 className="font-bold text-lg mb-2">Customer Feedback</h3>
                  <div className="flex space-x-2 mb-3">
@@ -863,7 +952,6 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
                  {feedbackSummary && ( <div className="mt-3 p-3 bg-gray-50 rounded border"> <pre className="whitespace-pre-wrap text-sm text-gray-700">{feedbackSummary}</pre> </div> )}
             </div>
             
-            {/* Customer Loyalty Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4">
                 <h3 className="font-bold text-lg mb-2">Customer Loyalty</h3>
                 {loadingCustomers ? <p>Loading...</p> : (
@@ -880,7 +968,6 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
                 )}
             </div>
             
-            {/* Offer Modal */}
             {offerModal.isOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col">
@@ -903,31 +990,35 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     const [targetAudience, setTargetAudience] = useState(restaurant.targetAudience || '');
     const [logoUrl, setLogoUrl] = useState(restaurant.logoUrl || '');
     const [themeColor, setThemeColor] = useState(restaurant.themeColor || '#4f46e5');
-    const [foodCostPercent, setFoodCostPercent] = useState(restaurant.foodCostPercent || 35); // New State
+    const [aggregatorCommission, setAggregatorCommission] = useState(restaurant.aggregatorCommission || 25);
     const [newDishName, setNewDishName] = useState('');
+    const [newDishCost, setNewDishCost] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         setDishes(restaurant.dishes || []); setPhone(restaurant.phone || '');
         setCuisineType(restaurant.cuisineType || ''); setTargetAudience(restaurant.targetAudience || '');
         setLogoUrl(restaurant.logoUrl || ''); setThemeColor(restaurant.themeColor || '#4f46e5');
-        setFoodCostPercent(restaurant.foodCostPercent || 35);
+        setAggregatorCommission(restaurant.aggregatorCommission || 25);
      }, [restaurant]);
 
     const handleAddDish = () => {
-        if (newDishName.trim() === '') return;
-        const newDish = { id: `dish${Date.now()}`, name: newDishName.trim() };
-        setDishes([...dishes, newDish]); setNewDishName('');
+        if (!newDishName.trim() || !newDishCost.trim()) { alert("Please enter both a name and a cost."); return; }
+        const newDish = { id: `dish${Date.now()}`, name: newDishName.trim(), cost: parseFloat(newDishCost) };
+        setDishes([...dishes, newDish]); setNewDishName(''); setNewDishCost('');
      };
     const handleRemoveDish = (idToRemove) => { setDishes(dishes.filter(dish => dish.id !== idToRemove)); };
+    const handleDishCostChange = (id, cost) => { setDishes(dishes.map(dish => dish.id === id ? { ...dish, cost: parseFloat(cost) || 0 } : dish )); };
+    
     const handleSaveChanges = async () => {
         setIsSaving(true); const restaurantRef = doc(db, 'restaurants', user.uid);
-        try { const updatedData = { dishes, phone, cuisineType, targetAudience, logoUrl, themeColor, foodCostPercent: Number(foodCostPercent) };
+        try { const updatedData = { dishes, phone, cuisineType, targetAudience, logoUrl, themeColor, aggregatorCommission: Number(aggregatorCommission) };
               await updateDoc(restaurantRef, updatedData); updateRestaurant(updatedData);
               alert("Changes saved!");
         } catch(error) { console.error("Save Error: ", error); alert("Save failed."); }
         finally { setIsSaving(false); }
     };
+    
     const shareQrViaWhatsApp = () => {
          const menuUrl = `${window.location.origin}/menu/${user.uid}`;
          const message = `Check out our menu: ${menuUrl}`;
@@ -940,34 +1031,42 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
     return (
         <div>
             <div className="bg-white p-4 rounded-lg shadow mb-4"> <p className="font-semibold">{user.displayName}</p> <p className="text-sm text-gray-500">{user.email}</p> </div>
-            
-            <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                 <h3 className="font-bold text-lg mb-1">Business Settings</h3>
-                 {/* New Profit Margin Setting */}
-                 <div> <label className="block text-sm font-medium text-gray-700 mb-1">Est. Food Cost (%)</label> <input type="number" value={foodCostPercent} onChange={(e) => setFoodCostPercent(e.target.value)} placeholder="35" className="w-full p-2 border rounded-md"/> <p className="text-xs text-gray-500">Used to calculate estimated profit.</p> </div>
-            </div>
-
             {/* Branding Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
                  <h3 className="font-bold text-lg mb-1">Branding</h3>
                  <div> <label htmlFor="logoUrl" className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label> <input type="url" id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className="w-full p-2 border rounded-md"/> {logoUrl && <img src={logoUrl} alt="Preview" className="mt-2 h-10 w-auto rounded" onError={(e) => e.target.style.display='none'}/>} </div>
                  <div> <label htmlFor="themeColor" className="block text-sm font-medium text-gray-700 mb-1">Theme Color</label> <div className="flex items-center space-x-2"> <input type="color" id="themeColor" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="p-1 h-10 w-10 block bg-white border rounded-lg cursor-pointer"/> <input type="text" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} placeholder="#4f46e5" className="w-full p-2 border rounded-md"/> </div> </div>
             </div>
-            {/* Restaurant Details */}
+            {/* Business Settings Section */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                 <h3 className="font-bold text-lg mb-1">Details (for AI)</h3>
+                 <h3 className="font-bold text-lg mb-1">Business Details (for AI)</h3>
                  <div> <label htmlFor="cuisineType" className="block text-sm font-medium text-gray-700 mb-1">Cuisine</label> <input type="text" id="cuisineType" value={cuisineType} onChange={(e) => setCuisineType(e.target.value)} placeholder="e.g., South Indian" className="w-full p-2 border rounded-md"/> </div>
                  <div> <label htmlFor="targetAudience" className="block text-sm font-medium text-gray-700 mb-1">Customers</label> <input type="text" id="targetAudience" value={targetAudience} onChange={(e) => setTargetAudience(e.target.value)} placeholder="e.g., Families" className="w-full p-2 border rounded-md"/> </div>
+                 <div> <label htmlFor="aggregatorCommission" className="block text-sm font-medium text-gray-700 mb-1">Aggregator Commission (%)</label> <input type="number" id="aggregatorCommission" value={aggregatorCommission} onChange={(e) => setAggregatorCommission(e.target.value)} placeholder="25" className="w-full p-2 border rounded-md"/> <p className="text-xs text-gray-500">Avg. % you pay Zomato/Swiggy. Used to calculate savings.</p> </div>
             </div>
-            {/* WhatsApp */}
             <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">WhatsApp</h3> <p className="text-sm text-gray-600 mb-2">Your number (with country code) for reports.</p> <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g., 919876543210" className="w-full p-2 border rounded-md"/> </div>
-            {/* Dishes */}
-            <div className="bg-white p-4 rounded-lg shadow mb-4"> <h3 className="font-bold text-lg mb-2">Manage Dishes</h3> <div className="space-y-2 mb-4"> {(dishes || []).map(dish => ( <div key={dish.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-md"> <span>{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div> ))} </div> <div className="flex space-x-2"> <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="Add new dish" className="flex-grow p-2 border rounded-md"/> <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button> </div> </div>
+            {/* Dishes Section */}
+            <div className="bg-white p-4 rounded-lg shadow mb-4"> 
+                <h3 className="font-bold text-lg mb-2">Manage Dishes & Costs</h3>
+                <p className="text-sm text-gray-600 mb-3">Add items and their *raw material cost* to track savings & profit.</p>
+                <div className="space-y-2 mb-4"> 
+                    {(dishes || []).map(dish => ( 
+                        <div key={dish.id} className="p-3 bg-gray-50 rounded-md border">
+                            <div className="flex items-center justify-between"> <span className="font-semibold text-gray-800">{dish.name}</span> <button onClick={() => handleRemoveDish(dish.id)} className="text-red-500 hover:text-red-700"><TrashIcon className="h-5 w-5" /></button> </div>
+                            <label className="text-xs text-gray-500">Raw Cost (₹)</label>
+                            <input type="number" value={dish.cost || ''} onChange={(e) => handleDishCostChange(dish.id, e.target.value)} placeholder="e.g., 100" className="w-full mt-1 p-2 border rounded-md text-sm"/>
+                        </div> 
+                    ))} 
+                </div> 
+                <div className="flex space-x-2 border-t pt-4"> 
+                    <input type="text" value={newDishName} onChange={(e) => setNewDishName(e.target.value)} placeholder="New dish name" className="flex-grow p-2 border rounded-md"/>
+                    <input type="number" value={newDishCost} onChange={(e) => setNewDishCost(e.target.value)} placeholder="Cost (₹)" className="w-24 p-2 border rounded-md"/>
+                    <button onClick={handleAddDish} className="px-4 py-2 bg-blue-500 text-white rounded-md font-semibold">+</button>
+                </div> 
+            </div>
             <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
-            {/* QR Codes */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
-            {/* Sign Out */}
             <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
         </div>
     );
@@ -989,18 +1088,19 @@ const ProFeatureLock = ({ title, description }) => (
 
 
 const BottomNavBar = ({ activeScreen, setActiveScreen, isPro, themeColor }) => {
-    const navItems = [
+    const finalNavItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboardIcon },
-        { id: 'marketing', label: 'Marketing AI', icon: SparklesIcon },
+        { id: 'marketing', label: 'Marketing', icon: SparklesIcon },
         { id: 'orders', label: 'Orders', icon: ShoppingCartIcon },
         { id: 'inventory', label: 'Operations', icon: ClipboardListIcon },
-        { id: 'insights', label: 'AI Insights', icon: BrainCircuitIcon }, // ** Added back AI Insights **
+        { id: 'insights', label: 'AI Insights', icon: BrainCircuitIcon },
         { id: 'settings', label: 'Settings', icon: SettingsIcon },
     ];
+
     return (
-         <div className="bg-white shadow-t sticky bottom-0 border-t z-10 overflow-x-auto"> {/* Allow scrolling for more tabs */}
+         <div className="bg-white shadow-t sticky bottom-0 border-t z-10 overflow-x-auto">
             <div className="flex justify-between min-w-full px-2">
-                {navItems.map(item => (
+                {finalNavItems.map(item => (
                     <button
                         key={item.id}
                         onClick={() => setActiveScreen(item.id)}
