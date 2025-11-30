@@ -28,6 +28,7 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
+// 🔴 ACTION REQUIRED: PASTE YOUR FIREBASE KEYS HERE AGAIN 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -65,7 +66,7 @@ const applyTheme = (color) => {
             const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
             return luminance;
         } catch (e) {
-            return 0; // Default to dark background luminance on error
+            return 0; 
         }
      };
     const luminance = calculateLuminance(validColor);
@@ -82,7 +83,7 @@ const applyTheme = (color) => {
             r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
             return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
         } catch (e) {
-            return validColor; // Return original valid color on error
+            return validColor; 
         }
      };
     const hoverColor = darkenColor(validColor, 20);
@@ -96,6 +97,7 @@ export default function App() {
     const [loadingData, setLoadingData] = useState(false); 
     const [restaurant, setRestaurant] = useState(null);
     const [activeScreen, setActiveScreen] = useState('dashboard');
+    const [appError, setAppError] = useState(null); // ** NEW: Global Error State **
 
     // Stage 1: Listen for auth changes
     useEffect(() => {
@@ -113,7 +115,7 @@ export default function App() {
         return () => unsubscribe();
     }, []); 
 
-    // Stage 2: Fetch data *after* auth check is complete and user is known
+    // Stage 2: Fetch data
     useEffect(() => {
         const fetchRestaurantData = async (currentUser) => {
             if (!currentUser) {
@@ -123,6 +125,8 @@ export default function App() {
             }
 
             setLoadingData(true); 
+            setAppError(null); // Clear previous errors
+
             try {
                 const restaurantRef = doc(db, 'restaurants', currentUser.uid);
                 const docSnap = await getDoc(restaurantRef);
@@ -156,8 +160,8 @@ export default function App() {
                 setRestaurant(restData);
             } catch (error) {
                 console.error("CRITICAL: Error in fetchRestaurantData:", error);
-                setRestaurant(null); 
-                applyTheme('#4f46e5');
+                // ** FIX: Show error instead of logging out **
+                setAppError(error.message); 
             } finally {
                 setLoadingData(false); 
             }
@@ -201,21 +205,42 @@ export default function App() {
         applyTheme(restaurant?.themeColor || '#4f46e5');
     }, [restaurant?.themeColor]);
 
-    if (loadingAuth) {
-         return <LoadingScreen message="Connecting..." />;
+    // ** Error Screen (Debugging) **
+    if (appError) {
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-6 text-center">
+                <h2 className="text-2xl font-bold text-red-700 mb-2">Something went wrong</h2>
+                <p className="text-gray-700 mb-4">We couldn't load your restaurant data.</p>
+                <div className="bg-white p-4 rounded border border-red-200 text-left w-full max-w-md overflow-auto mb-4">
+                    <p className="text-xs font-mono text-red-600 break-all">{appError}</p>
+                </div>
+                {appError.includes("permission") && (
+                    <div className="bg-yellow-100 p-3 rounded text-sm text-yellow-800 mb-4">
+                        <strong>Tip:</strong> This usually means your Firestore Database Rules are blocking access. 
+                        Go to Firebase Console {'>'} Build {'>'} Firestore Database {'>'} Rules and paste the rules provided in the chat.
+                    </div>
+                )}
+                 {appError.includes("api-key") && (
+                    <div className="bg-yellow-100 p-3 rounded text-sm text-yellow-800 mb-4">
+                        <strong>Tip:</strong> Double check your API Key in the code. It might still be the placeholder "YOUR_API_KEY".
+                    </div>
+                )}
+                <button 
+                    onClick={() => window.location.reload()} 
+                    className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
+                >
+                    Retry
+                </button>
+            </div>
+        );
     }
 
-    if (!user) {
-         return <AuthScreen />;
-    }
-
-    if (loadingData) {
-         return <LoadingScreen message="Loading Restaurant..." />;
-    }
-
-    if (!restaurant) {
-         return <LoadingScreen message="Error loading restaurant data. Please refresh." />;
-    }
+    if (loadingAuth) return <LoadingScreen message="Connecting..." />;
+    if (!user) return <AuthScreen />;
+    if (loadingData) return <LoadingScreen message="Loading Restaurant..." />;
+    
+    // Fallback if no error but no data (shouldn't happen with new logic)
+    if (!restaurant) return <LoadingScreen message="Initializing..." />;
 
     const ScreenComponent = {
         dashboard: <DashboardScreen restaurant={restaurant} userId={user.uid} />,
@@ -243,13 +268,14 @@ const LoadingScreen = ({ message }) => (
      <div className="flex items-center justify-center h-screen bg-gray-100"> <div className="text-xl font-semibold text-gray-700">{message}</div> </div>
 );
 
-const AuthScreen = () => {
+const AuthScreen = ({}) => {
      const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
             await signInWithPopup(auth, provider);
         } catch (error) {
             console.error("Error signing in with Google", error);
+            alert(`Login Failed: ${error.message}`); // Show alert on login fail
         }
     };
     return (
@@ -371,6 +397,9 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 if (item.currentStock <= item.lowStockThreshold) { lowItems.push(item); }
             });
             setLowStockItems(lowItems);
+        }, (error) => {
+             // Ignore permission errors for inventory if not set up
+             console.warn("Inventory fetch warning:", error.message);
         });
         return () => unsubscribe();
     }, [userId]);
@@ -398,10 +427,16 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 }
             });
 
-            const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('createdAt', '>=', sevenDaysAgoTimestamp));
+            const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId));
             const ordersSnapshot = await getDocs(ordersQuery);
             let totalOrderValue = 0;
-            ordersSnapshot.forEach(doc => { totalOrderValue += doc.data().total || 0; });
+            ordersSnapshot.forEach(doc => { 
+                 const data = doc.data();
+                 const dateMillis = data.createdAt?.toMillis ? data.createdAt.toMillis() : 0;
+                 if(dateMillis >= sevenDaysAgoTimestamp.toMillis()){
+                     totalOrderValue += data.total || 0; 
+                 }
+            });
             const commissionRate = restaurant.aggregatorCommission / 100 || 0.25;
             totalCommissionSavings = totalOrderValue * commissionRate;
 
@@ -703,8 +738,14 @@ const MarketingScreen = ({ restaurant, userId }) => {
 
     const callGeminiAPI = useCallback(async (systemPrompt, userQuery) => {
         setIsLoading(true); setError(''); setGeneratedPost('');
-        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; // Make sure this is replaced
-        if (apiKey === "YOUR_GEMINI_API_KEY") { setError("API Key for Gemini not set."); setIsLoading(false); return null; }
+        // 🔴 ACTION REQUIRED: PASTE YOUR GEMINI API KEY HERE AGAIN 🔴
+        const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; 
+        
+        if (apiKey === "YOUR_GEMINI_API_KEY" || apiKey.includes("YOUR_")) { 
+             setError("API Key for Gemini not set in code."); 
+             setIsLoading(false); 
+             return null; 
+        }
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
         try {
@@ -929,8 +970,9 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
 
     const callGeminiAPI = async (systemPrompt, userQuery) => {
         setError('');
+        // 🔴 ACTION REQUIRED: PASTE YOUR GEMINI API KEY HERE AGAIN 🔴
         const apiKey = "AIzaSyAiG1X8N41d4SRQquhDhHk-Qf7q_om0YVo"; 
-        if (apiKey === "YOUR_GEMINI_API_KEY") { setError("API Key not set."); return null; }
+        if (apiKey === "YOUR_GEMINI_API_KEY" || apiKey.includes("YOUR_")) { setError("API Key for Gemini not set."); return null; }
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
         const payload = { contents: [{ parts: [{ text: userQuery }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, };
         try {
