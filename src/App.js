@@ -28,7 +28,7 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Configuration ---
-// 🔴 ACTION REQUIRED: PASTE YOUR FIREBASE KEYS HERE AGAIN 🔴
+// 🔴 ACTION REQUIRED: DOUBLE CHECK YOUR KEYS HERE 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyBftMuoj3qY5uE36I_x5WtBX4JAh1wFZgc",
   authDomain: "smartchefai-78cae.firebaseapp.com",
@@ -46,9 +46,16 @@ const db = getFirestore(app);
 
 // --- Helper Functions ---
 const formatDate = (date) => {
-    if (!date || typeof date.toDate !== 'function') return 'Invalid Date';
-    const d = date.toDate();
-    return d.toISOString().split('T')[0];
+    if (!date) return 'Invalid Date';
+    // Handle Firestore Timestamp
+    if (typeof date.toDate === 'function') {
+        return date.toDate().toISOString().split('T')[0];
+    }
+    // Handle JS Date
+    if (date instanceof Date) {
+        return date.toISOString().split('T')[0];
+    }
+    return 'Invalid Date';
 };
 
 // --- Theme Application ---
@@ -65,9 +72,7 @@ const applyTheme = (color) => {
             const b = (rgb >> 0) & 0xff;
             const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
             return luminance;
-        } catch (e) {
-            return 0; 
-        }
+        } catch (e) { return 0; }
      };
     const luminance = calculateLuminance(validColor);
     const textColor = luminance > 0.5 ? '#000000' : '#FFFFFF';
@@ -82,9 +87,7 @@ const applyTheme = (color) => {
             let b = (num & 0x0000FF) - amount;
             r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
             return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
-        } catch (e) {
-            return validColor; 
-        }
+        } catch (e) { return validColor; }
      };
     const hoverColor = darkenColor(validColor, 20);
     document.documentElement.style.setProperty('--primary-hover-color', hoverColor);
@@ -97,9 +100,8 @@ export default function App() {
     const [loadingData, setLoadingData] = useState(false); 
     const [restaurant, setRestaurant] = useState(null);
     const [activeScreen, setActiveScreen] = useState('dashboard');
-    const [appError, setAppError] = useState(null); // ** NEW: Global Error State **
+    const [appError, setAppError] = useState(null); 
 
-    // Stage 1: Listen for auth changes
     useEffect(() => {
         setLoadingAuth(true); 
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -115,7 +117,6 @@ export default function App() {
         return () => unsubscribe();
     }, []); 
 
-    // Stage 2: Fetch data
     useEffect(() => {
         const fetchRestaurantData = async (currentUser) => {
             if (!currentUser) {
@@ -125,7 +126,7 @@ export default function App() {
             }
 
             setLoadingData(true); 
-            setAppError(null); // Clear previous errors
+            setAppError(null);
 
             try {
                 const restaurantRef = doc(db, 'restaurants', currentUser.uid);
@@ -160,7 +161,6 @@ export default function App() {
                 setRestaurant(restData);
             } catch (error) {
                 console.error("CRITICAL: Error in fetchRestaurantData:", error);
-                // ** FIX: Show error instead of logging out **
                 setAppError(error.message); 
             } finally {
                 setLoadingData(false); 
@@ -205,32 +205,14 @@ export default function App() {
         applyTheme(restaurant?.themeColor || '#4f46e5');
     }, [restaurant?.themeColor]);
 
-    // ** Error Screen (Debugging) **
     if (appError) {
         return (
             <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-6 text-center">
                 <h2 className="text-2xl font-bold text-red-700 mb-2">Something went wrong</h2>
-                <p className="text-gray-700 mb-4">We couldn't load your restaurant data.</p>
                 <div className="bg-white p-4 rounded border border-red-200 text-left w-full max-w-md overflow-auto mb-4">
                     <p className="text-xs font-mono text-red-600 break-all">{appError}</p>
                 </div>
-                {appError.includes("permission") && (
-                    <div className="bg-yellow-100 p-3 rounded text-sm text-yellow-800 mb-4">
-                        <strong>Tip:</strong> This usually means your Firestore Database Rules are blocking access. 
-                        Go to Firebase Console {'>'} Build {'>'} Firestore Database {'>'} Rules and paste the rules provided in the chat.
-                    </div>
-                )}
-                 {appError.includes("api-key") && (
-                    <div className="bg-yellow-100 p-3 rounded text-sm text-yellow-800 mb-4">
-                        <strong>Tip:</strong> Double check your API Key in the code. It might still be the placeholder "YOUR_API_KEY".
-                    </div>
-                )}
-                <button 
-                    onClick={() => window.location.reload()} 
-                    className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700"
-                >
-                    Retry
-                </button>
+                <button onClick={() => window.location.reload()} className="bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700">Retry</button>
             </div>
         );
     }
@@ -238,8 +220,6 @@ export default function App() {
     if (loadingAuth) return <LoadingScreen message="Connecting..." />;
     if (!user) return <AuthScreen />;
     if (loadingData) return <LoadingScreen message="Loading Restaurant..." />;
-    
-    // Fallback if no error but no data (shouldn't happen with new logic)
     if (!restaurant) return <LoadingScreen message="Initializing..." />;
 
     const ScreenComponent = {
@@ -275,17 +255,14 @@ const AuthScreen = ({}) => {
             await signInWithPopup(auth, provider);
         } catch (error) {
             console.error("Error signing in with Google", error);
-            alert(`Login Failed: ${error.message}`); // Show alert on login fail
+            alert(`Login Failed: ${error.message}`); 
         }
     };
     return (
         <div className="flex flex-col items-center justify-center h-screen bg-white">
             <h1 className="text-4xl font-bold text-primary mb-2">SmartChef AI</h1>
             <p className="text-gray-600 mb-8">Your AI-Powered Restaurant Assistant</p>
-            <button
-                onClick={signInWithGoogle}
-                className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300"
-            >
+            <button onClick={signInWithGoogle} className="flex items-center justify-center bg-primary text-on-primary font-semibold py-3 px-6 rounded-lg shadow-lg hover:bg-primary-hover transition duration-300">
                 <svg className="w-6 h-6 mr-2" viewBox="0 0 48 48"> <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path><path fill="none" d="M0 0h48v48H0z"></path> </svg>
                 Sign in with Google
             </button>
@@ -315,6 +292,19 @@ const DashboardScreen = ({ restaurant, userId }) => {
     const [weeklySavings, setWeeklySavings] = useState({ wastage: 0, commission: 0, total: 0 });
     const [loadingSavings, setLoadingSavings] = useState(true);
 
+    // Helper to handle potentially mixed date formats (Timestamps vs ISO strings vs Date objects)
+    const getDateMillis = (dateObj) => {
+        if (!dateObj) return 0;
+        if (typeof dateObj.toMillis === 'function') return dateObj.toMillis();
+        if (dateObj instanceof Date) return dateObj.getTime();
+        // Try parsing ISO string
+        if (typeof dateObj === 'string') {
+            const parsed = new Date(dateObj).getTime();
+            return isNaN(parsed) ? 0 : parsed;
+        }
+        return 0;
+    };
+
     const calculatePredictions = useCallback(async () => {
         if (!userId || currentDishes.length === 0) {
             setPredictions([]);
@@ -327,7 +317,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
         try {
             const sevenDaysAgo = new Date(); 
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            const sevenDaysAgoMillis = Timestamp.fromDate(sevenDaysAgo).toMillis();
+            const sevenDaysAgoMillis = sevenDaysAgo.getTime();
 
             const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const querySnapshot = await getDocs(salesQuery);
@@ -337,10 +327,9 @@ const DashboardScreen = ({ restaurant, userId }) => {
 
             querySnapshot.forEach(doc => {
                 const data = doc.data();
-                // Robust check for valid date and numbers
-                const dateMillis = data.date?.toMillis ? data.date.toMillis() : null;
+                const dateMillis = getDateMillis(data.date);
                 
-                if (dateMillis && dateMillis >= sevenDaysAgoMillis) {
+                if (dateMillis >= sevenDaysAgoMillis) {
                     if (salesData[data.dishId]) {
                          const safeSold = typeof data.quantitySold === 'number' ? data.quantitySold : 0;
                          const safeWasted = typeof data.quantityWasted === 'number' ? data.quantityWasted : 0;
@@ -374,8 +363,7 @@ const DashboardScreen = ({ restaurant, userId }) => {
             }
         } catch (error) {
             console.error("Dashboard: Failed to calculate predictions:", error);
-            // Display the actual error message to help debugging
-            setPredictionError(`Error: ${error.message || "Unknown calculation error"}`);
+            setPredictionError(`Error: ${error.message}`);
         } finally {
             setLoadingPredictions(false);
         }
@@ -398,7 +386,6 @@ const DashboardScreen = ({ restaurant, userId }) => {
             });
             setLowStockItems(lowItems);
         }, (error) => {
-             // Ignore permission errors for inventory if not set up
              console.warn("Inventory fetch warning:", error.message);
         });
         return () => unsubscribe();
@@ -413,15 +400,15 @@ const DashboardScreen = ({ restaurant, userId }) => {
         try {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
+            const sevenDaysAgoMillis = sevenDaysAgo.getTime();
             const dishCostMap = new Map(currentDishes.map(d => [d.id, d.cost || 0]));
 
             const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const salesSnapshot = await getDocs(salesQuery);
             salesSnapshot.forEach(doc => {
                 const data = doc.data();
-                const dateMillis = data.date?.toMillis ? data.date.toMillis() : 0;
-                if (dateMillis >= sevenDaysAgoTimestamp.toMillis()) {
+                const dateMillis = getDateMillis(data.date);
+                if (dateMillis >= sevenDaysAgoMillis) {
                     const cost = dishCostMap.get(data.dishId) || 0;
                     totalWastageSavings += (data.quantityWasted || 0) * cost;
                 }
@@ -432,8 +419,8 @@ const DashboardScreen = ({ restaurant, userId }) => {
             let totalOrderValue = 0;
             ordersSnapshot.forEach(doc => { 
                  const data = doc.data();
-                 const dateMillis = data.createdAt?.toMillis ? data.createdAt.toMillis() : 0;
-                 if(dateMillis >= sevenDaysAgoTimestamp.toMillis()){
+                 const dateMillis = getDateMillis(data.createdAt);
+                 if(dateMillis >= sevenDaysAgoMillis){
                      totalOrderValue += data.total || 0; 
                  }
             });
@@ -1006,7 +993,10 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
             let salesFound = false;
             querySnapshot.forEach(doc => { 
                 const data = doc.data(); 
-                if(data.date && data.date.toMillis() >= thirtyDaysAgoTimestamp.toMillis()) {
+                // Robust Date Check
+                const dateMillis = data.date?.toMillis ? data.date.toMillis() : (data.date instanceof Date ? data.date.getTime() : 0);
+
+                if(dateMillis >= thirtyDaysAgoTimestamp.toMillis()) {
                     if (salesSummary[data.dishId]) { salesSummary[data.dishId].sold += (data.quantitySold || 0); salesSummary[data.dishId].wasted += (data.quantityWasted || 0); salesFound = true; }
                 }
             });
