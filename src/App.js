@@ -1,5 +1,5 @@
 import React from 'react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
     getAuth,
@@ -66,7 +66,7 @@ const applyTheme = (color) => {
             const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
             return luminance;
         } catch (e) {
-            return 0; // Default to dark background luminance on error
+            return 0;
         }
      };
     const luminance = calculateLuminance(validColor);
@@ -83,7 +83,7 @@ const applyTheme = (color) => {
             r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
             return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
         } catch (e) {
-            return validColor; // Return original valid color on error
+            return validColor; 
         }
      };
     const hoverColor = darkenColor(validColor, 20);
@@ -93,77 +93,81 @@ const applyTheme = (color) => {
 // --- Main App Component ---
 export default function App() {
     const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [loadingAuth, setLoadingAuth] = useState(true); 
+    const [loadingData, setLoadingData] = useState(false); 
     const [restaurant, setRestaurant] = useState(null);
     const [activeScreen, setActiveScreen] = useState('dashboard');
-    const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false);
 
-    const fetchRestaurantData = useCallback(async (currentUser) => {
-        if (!currentUser) {
-            setUser(null);
-            setRestaurant(null);
-            setActiveScreen('dashboard');
-            applyTheme('#4f46e5');
-            setInitialAuthCheckComplete(true);
-            return;
-        }
-
-        try {
-            const restaurantRef = doc(db, 'restaurants', currentUser.uid);
-            const docSnap = await getDoc(restaurantRef);
-            let restData;
-            if (docSnap.exists()) {
-                 const data = docSnap.data();
-                 restData = {
-                    ...data,
-                    cuisineType: data.cuisineType || '', targetAudience: data.targetAudience || '',
-                    dishes: data.dishes || [], phone: data.phone || '', logoUrl: data.logoUrl || '',
-                    themeColor: data.themeColor || '#4f46e5',
-                    foodCostPercent: data.foodCostPercent || 35,
-                    aggregatorCommission: data.aggregatorCommission || 25,
-                 };
-                 restData.dishes = restData.dishes.map(d => ({...d, cost: d.cost || 100}));
-            } else {
-                restData = {
-                    owner: currentUser.displayName || 'Restaurant Owner', name: `${currentUser.displayName || 'My'}'s Place`,
-                    subscription: 'free',
-                    dishes: [
-                        { id: 'dish1', name: 'Chicken Biryani', cost: 120 },
-                        { id: 'dish2', name: 'Paneer Butter Masala', cost: 100 },
-                        { id: 'dish3', name: 'Masala Dosa', cost: 40 }
-                    ],
-                    phone: '', cuisineType: '', targetAudience: '', logoUrl: '', themeColor: '#4f46e5',
-                    foodCostPercent: 35,
-                    aggregatorCommission: 25,
-                    createdAt: Timestamp.now(),
-                };
-                await setDoc(restaurantRef, restData);
-            }
-            applyTheme(restData.themeColor);
-            setRestaurant(restData);
-            setUser(currentUser);
-        } catch (error) {
-            console.error("CRITICAL: Error in fetchRestaurantData:", error);
-            setUser(null);
-            setRestaurant(null);
-            applyTheme('#4f46e5');
-        } finally {
-            setInitialAuthCheckComplete(true);
-        }
-    }, []);
-
+    // Stage 1: Listen for auth changes
     useEffect(() => {
-        setLoading(true);
+        setLoadingAuth(true); 
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            setInitialAuthCheckComplete(false);
-            setUser(null);
-            setRestaurant(null);
-            fetchRestaurantData(firebaseUser).finally(() => {
-                setLoading(false);
-            });
+            if (firebaseUser) {
+                setUser(firebaseUser);
+            } else {
+                setUser(null);
+                setRestaurant(null); 
+                applyTheme('#4f46e5'); 
+            }
+            setLoadingAuth(false); 
         });
         return () => unsubscribe();
-    }, [fetchRestaurantData]);
+    }, []); 
+
+    // Stage 2: Fetch data *after* auth check is complete and user is known
+    useEffect(() => {
+        const fetchRestaurantData = async (currentUser) => {
+            if (!currentUser) {
+                setRestaurant(null);
+                setLoadingData(false); 
+                return;
+            }
+
+            setLoadingData(true); 
+            try {
+                const restaurantRef = doc(db, 'restaurants', currentUser.uid);
+                const docSnap = await getDoc(restaurantRef);
+                let restData;
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    restData = {
+                        ...data,
+                        cuisineType: data.cuisineType || '', targetAudience: data.targetAudience || '',
+                        dishes: (data.dishes || []).map(d => ({...d, cost: d.cost || 100})), 
+                        phone: data.phone || '', logoUrl: data.logoUrl || '',
+                        themeColor: data.themeColor || '#4f46e5',
+                        aggregatorCommission: data.aggregatorCommission || 25,
+                    };
+                } else {
+                    restData = {
+                        owner: currentUser.displayName || 'Restaurant Owner', name: `${currentUser.displayName || 'My'}'s Place`,
+                        subscription: 'free',
+                        dishes: [
+                            { id: 'dish1', name: 'Chicken Biryani', cost: 120 },
+                            { id: 'dish2', name: 'Paneer Butter Masala', cost: 100 },
+                            { id: 'dish3', name: 'Masala Dosa', cost: 40 }
+                        ],
+                        phone: '', cuisineType: '', targetAudience: '', logoUrl: '', themeColor: '#4f46e5',
+                        aggregatorCommission: 25,
+                        createdAt: Timestamp.now(),
+                    };
+                    await setDoc(restaurantRef, restData);
+                }
+                applyTheme(restData.themeColor);
+                setRestaurant(restData);
+            } catch (error) {
+                console.error("CRITICAL: Error in fetchRestaurantData:", error);
+                setRestaurant(null); 
+                applyTheme('#4f46e5');
+            } finally {
+                setLoadingData(false); 
+            }
+        };
+
+        if (!loadingAuth) { 
+            fetchRestaurantData(user);
+        }
+    }, [user, loadingAuth]);
 
 
     const updateRestaurant = (newData) => {
@@ -198,12 +202,16 @@ export default function App() {
         applyTheme(restaurant?.themeColor || '#4f46e5');
     }, [restaurant?.themeColor]);
 
-    if (loading || !initialAuthCheckComplete) {
-         return <LoadingScreen message="Loading SmartChef AI..." />;
+    if (loadingAuth) {
+         return <LoadingScreen message="Connecting..." />;
     }
 
     if (!user) {
          return <AuthScreen />;
+    }
+
+    if (loadingData) {
+         return <LoadingScreen message="Loading Restaurant..." />;
     }
 
     if (!restaurant) {
@@ -273,37 +281,58 @@ const Header = ({ title, logoUrl }) => (
 
 
 const DashboardScreen = ({ restaurant, userId }) => {
+    const currentDishes = useMemo(() => restaurant?.dishes || [], [restaurant]);
     const [isSalesModalOpen, setSalesModalOpen] = useState(false);
     const [predictions, setPredictions] = useState([]);
-    const [loadingPredictions, setLoadingPredictions] = useState(true);
+    const [loadingPredictions, setLoadingPredictions] = useState(false);
     const [predictionError, setPredictionError] = useState('');
     const [lowStockItems, setLowStockItems] = useState([]);
     const [weeklySavings, setWeeklySavings] = useState({ wastage: 0, commission: 0, total: 0 });
     const [loadingSavings, setLoadingSavings] = useState(true);
 
     const calculatePredictions = useCallback(async () => {
+        if (!userId || currentDishes.length === 0) {
+            setPredictions([]);
+            return;
+        }
+
         setLoadingPredictions(true);
         setPredictionError('');
-        setPredictions([]);
-        if (!userId || !restaurant.dishes || restaurant.dishes.length === 0) { setLoadingPredictions(false); return; }
+        
         try {
-            const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgo = new Date(); 
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             const sevenDaysAgoMillis = Timestamp.fromDate(sevenDaysAgo).toMillis();
+
             const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const querySnapshot = await getDocs(salesQuery);
+            
             const salesData = {};
-            restaurant.dishes.forEach(d => salesData[d.id] = []);
+            currentDishes.forEach(d => salesData[d.id] = []);
+
             querySnapshot.forEach(doc => {
                 const data = doc.data();
-                if (data.date?.toMillis && data.date.toMillis() >= sevenDaysAgoMillis && salesData[data.dishId] && typeof data.quantitySold === 'number') {
-                    salesData[data.dishId].push(data);
-                }
+                // Robust check for valid date and numbers
+                const dateMillis = data.date?.toMillis ? data.date.toMillis() : null;
+                
+                if (dateMillis && dateMillis >= sevenDaysAgoMillis) {
+                    if (salesData[data.dishId]) {
+                         const safeSold = typeof data.quantitySold === 'number' ? data.quantitySold : 0;
+                         const safeWasted = typeof data.quantityWasted === 'number' ? data.quantityWasted : 0;
+                         salesData[data.dishId].push({...data, quantitySold: safeSold, quantityWasted: safeWasted});
+                    }
+                 }
             });
+
             const hasSalesData = Object.values(salesData).some(arr => arr.length > 0);
-            if (hasSalesData) {
-                const newPredictions = restaurant.dishes.map(dish => {
+            
+            if (!hasSalesData) {
+                setPredictions([]); 
+            } else {
+                 const newPredictions = currentDishes.map(dish => {
                     const dishSales = salesData[dish.id];
                     let prediction = 5, confidence = 20, totalSold = 0, totalWasted = 0;
+                    
                     if (dishSales && dishSales.length > 0) {
                         const sum = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
                         prediction = Math.max(0, Math.round(sum / dishSales.length));
@@ -311,16 +340,28 @@ const DashboardScreen = ({ restaurant, userId }) => {
                         totalSold = dishSales.reduce((acc, curr) => acc + (curr.quantitySold || 0), 0);
                         totalWasted = dishSales.reduce((acc, curr) => acc + (curr.quantityWasted || 0), 0);
                     }
+                    
                     const totalPrepared = totalSold + totalWasted;
                     const wastagePercent = totalPrepared > 0 ? Math.round((totalWasted / totalPrepared) * 100) : 0;
                     return { id: dish.id, name: dish.name, prediction, confidence, wastage: wastagePercent > 15, wastagePercent };
                 });
                 setPredictions(newPredictions);
             }
-        } catch (error) { console.error("Dashboard: Failed to calculate predictions:", error); setPredictionError("Error calculating predictions."); }
-        finally { setLoadingPredictions(false); }
-    }, [userId, restaurant.dishes]);
+        } catch (error) {
+            console.error("Dashboard: Failed to calculate predictions:", error);
+            // Display the actual error message to help debugging
+            setPredictionError(`Error: ${error.message || "Unknown calculation error"}`);
+        } finally {
+            setLoadingPredictions(false);
+        }
+    }, [userId, currentDishes]);
 
+    // Initial Calculation Effect
+    useEffect(() => {
+        calculatePredictions();
+    }, [calculatePredictions]);
+
+    // Fetch Low Stock Logic
     useEffect(() => {
         if (!userId) return;
         const inventoryQuery = query(collection(db, 'inventory'), where('userId', '==', userId));
@@ -331,12 +372,11 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 if (item.currentStock <= item.lowStockThreshold) { lowItems.push(item); }
             });
             setLowStockItems(lowItems);
-        }, (error) => {
-             console.error("Error fetching low stock items:", error);
         });
         return () => unsubscribe();
     }, [userId]);
 
+    // Savings Calculation Logic
     const calculateWeeklySavings = useCallback(async () => {
         setLoadingSavings(true);
         let totalWastageSavings = 0;
@@ -346,14 +386,17 @@ const DashboardScreen = ({ restaurant, userId }) => {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
             const sevenDaysAgoTimestamp = Timestamp.fromDate(sevenDaysAgo);
-            const dishCostMap = new Map(restaurant.dishes.map(d => [d.id, d.cost || 0]));
+            const dishCostMap = new Map(currentDishes.map(d => [d.id, d.cost || 0]));
 
-            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId), where('date', '>=', sevenDaysAgoTimestamp));
+            const salesQuery = query(collection(db, 'daily_sales'), where('userId', '==', userId));
             const salesSnapshot = await getDocs(salesQuery);
             salesSnapshot.forEach(doc => {
                 const data = doc.data();
-                const cost = dishCostMap.get(data.dishId) || 0;
-                totalWastageSavings += (data.quantityWasted || 0) * cost;
+                const dateMillis = data.date?.toMillis ? data.date.toMillis() : 0;
+                if (dateMillis >= sevenDaysAgoTimestamp.toMillis()) {
+                    const cost = dishCostMap.get(data.dishId) || 0;
+                    totalWastageSavings += (data.quantityWasted || 0) * cost;
+                }
             });
 
             const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('createdAt', '>=', sevenDaysAgoTimestamp));
@@ -366,12 +409,11 @@ const DashboardScreen = ({ restaurant, userId }) => {
             setWeeklySavings({ wastage: Math.round(totalWastageSavings), commission: Math.round(totalCommissionSavings), total: Math.round(totalWastageSavings + totalCommissionSavings) });
         } catch (error) { console.error("Error calculating weekly savings:", error); }
         finally { setLoadingSavings(false); }
-    }, [userId, restaurant.dishes, restaurant.aggregatorCommission]);
+    }, [userId, currentDishes, restaurant.aggregatorCommission]);
 
     useEffect(() => {
-        calculatePredictions();
         calculateWeeklySavings();
-    }, [calculatePredictions, calculateWeeklySavings]);
+    }, [calculateWeeklySavings]);
 
     const sendWhatsAppReport = () => {
         if (!restaurant.phone) { alert("Please add your WhatsApp phone number in the Settings tab first."); return; }
@@ -383,10 +425,9 @@ const DashboardScreen = ({ restaurant, userId }) => {
         window.location.href = whatsappUrl;
     };
 
-    if (!restaurant) return <LoadingScreen message="Loading restaurant data..." />;
-
     return (
         <div>
+            {/* Savings Widget */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-green-500">
                 <h2 className="text-xl font-bold text-gray-800 mb-2">Weekly Savings</h2>
                 {loadingSavings ? <p>Calculating savings...</p> : (
@@ -399,11 +440,17 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 )}
             </div>
 
+            {/* Buttons */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 space-y-3">
-                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center"> <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span> </button>
-                <button onClick={sendWhatsAppReport} disabled={loadingPredictions || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"> <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span> </button>
+                <button onClick={() => setSalesModalOpen(true)} className="w-full bg-primary text-on-primary font-bold py-3 px-4 rounded-lg hover:bg-primary-hover transition duration-300 flex items-center justify-center">
+                    <PlusIcon className="h-6 w-6 mr-2" /> <span>Enter Yesterday's Sales</span>
+                </button>
+                <button onClick={sendWhatsAppReport} disabled={loadingPredictions || predictions.length === 0 || !!predictionError} className="w-full bg-green-500 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                    <SendIcon className="h-6 w-6 mr-2" /> <span>Send Report via WhatsApp</span>
+                </button>
             </div>
 
+            {/* Alerts */}
             {lowStockItems.length > 0 && (
                 <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow mb-4" role="alert">
                     <h3 className="font-bold text-lg flex items-center"> <AlertTriangleIcon className="h-6 w-6 mr-2"/> Low Stock Alerts! </h3>
@@ -411,9 +458,16 @@ const DashboardScreen = ({ restaurant, userId }) => {
                 </div>
             )}
 
+            {/* Forecast List */}
             <h2 className="text-xl font-bold text-gray-800 mb-3">Tomorrow's Forecast</h2>
-            {loadingPredictions ? ( <p>Calculating predictions...</p> )
-            : predictionError ? ( <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> <strong className="font-bold">Error: </strong> <span className="block sm:inline">{predictionError}</span> </div> )
+            {loadingPredictions ? ( <p className="text-gray-500 italic">Calculating predictions...</p> )
+            : predictionError ? ( 
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"> 
+                    <strong className="font-bold">Error: </strong> 
+                    <span className="block sm:inline">{predictionError}</span> 
+                    <button onClick={calculatePredictions} className="block mt-2 bg-red-200 text-red-800 px-3 py-1 rounded text-sm font-bold">Retry Calculation</button>
+                </div> 
+            )
             : predictions.length > 0 ? (
                 <div className="space-y-3">
                     {predictions.map(item => (
@@ -427,11 +481,15 @@ const DashboardScreen = ({ restaurant, userId }) => {
              ) : (
                 <div className="bg-white p-4 rounded-lg shadow text-center">
                     <p className="text-gray-600">No predictions to show.</p>
-                    <p className="text-sm text-gray-500 mt-1"> {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data."} </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                        {(!restaurant.dishes || restaurant.dishes.length === 0) ? "Please add some dishes in the Settings tab." : "Enter yesterday's sales data to generate the first forecast."}
+                    </p>
                 </div>
              )}
 
-            {isSalesModalOpen && ( <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={() => { calculatePredictions(); calculateWeeklySavings(); }}/> )}
+            {isSalesModalOpen && (
+                <SalesEntryModal dishes={restaurant.dishes || []} userId={userId} onClose={() => setSalesModalOpen(false)} onSave={() => { calculatePredictions(); calculateWeeklySavings(); }}/>
+             )}
         </div>
     );
 };
@@ -446,28 +504,52 @@ const SalesEntryModal = ({ dishes, userId, onClose, onSave }) => {
         }, {})
     );
     const [isSaving, setIsSaving] = useState(false);
+
     const handleInputChange = (dishId, field, value) => {
         const numValue = value === '' ? '' : Math.max(0, parseInt(value, 10));
-        setSalesData(prev => ({ ...prev, [dishId]: { ...prev[dishId], [field]: numValue } }));
+        setSalesData(prev => ({
+            ...prev,
+            [dishId]: { ...prev[dishId], [field]: numValue }
+        }));
     };
+
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-            const date = Timestamp.fromDate(yesterday); const formattedDate = formatDate(date); const batch = writeBatch(db);
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const date = Timestamp.fromDate(yesterday);
+            const formattedDate = formatDate(date);
+            const batch = writeBatch(db);
+
             for (const dish of dishes) {
                 const sold = salesData[dish.id]?.sold === '' ? 0 : Number(salesData[dish.id]?.sold ?? 0);
                 const wasted = salesData[dish.id]?.wasted === '' ? 0 : Number(salesData[dish.id]?.wasted ?? 0);
+
                 if (sold > 0 || wasted > 0) {
                     const docId = `${userId}_${formattedDate}_${dish.id}`;
                     const saleRef = doc(db, 'daily_sales', docId);
-                    batch.set(saleRef, { userId, dishId: dish.id, dishName: dish.name, quantitySold: sold, quantityWasted: wasted, date, });
+                    batch.set(saleRef, {
+                        userId,
+                        dishId: dish.id,
+                        dishName: dish.name,
+                        quantitySold: sold,
+                        quantityWasted: wasted,
+                        date,
+                    });
                 }
             }
-            await batch.commit(); onSave(); onClose();
-        } catch (error) { console.error("Error saving sales data: ", error); alert("Failed to save sales data."); }
-        finally { setIsSaving(false); }
+            await batch.commit();
+            onSave();
+            onClose();
+        } catch (error) {
+            console.error("Error saving sales data: ", error);
+            alert("Failed to save sales data. Please try again.");
+        } finally {
+            setIsSaving(false);
+        }
     };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
@@ -500,37 +582,76 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const ordersQuery = query(collection(db, 'live_orders'), where('userId', '==', userId), where('status', 'in', ['pending', 'accepted']));
+        const ordersQuery = query(
+            collection(db, 'live_orders'),
+            where('userId', '==', userId),
+            where('status', 'in', ['pending', 'accepted'])
+        );
+
         const unsubscribe = onSnapshot(ordersQuery, (querySnapshot) => {
             const liveOrders = [];
-            querySnapshot.forEach((doc) => { liveOrders.push({ id: doc.id, ...doc.data() }); });
+            querySnapshot.forEach((doc) => {
+                liveOrders.push({ id: doc.id, ...doc.data() });
+            });
             liveOrders.sort((a, b) => {
                 if (a.status === 'pending' && b.status !== 'pending') return -1;
                 if (a.status !== 'pending' && b.status === 'pending') return 1;
                 return (a.createdAt?.toDate() || 0) - (b.createdAt?.toDate() || 0);
             });
-            setOrders(liveOrders); setLoading(false);
-        }, (error) => { console.error("Error fetching live orders: ", error); setLoading(false); });
+            setOrders(liveOrders);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching live orders: ", error);
+            setLoading(false);
+        });
+
         return () => unsubscribe();
     }, [userId]);
 
     const addTestOrder = async () => {
-        const testCustomer = { name: 'Test Customer ' + Math.floor(Math.random() * 100), phone: '919876500000' };
+        const testCustomer = {
+            name: 'Test Customer ' + Math.floor(Math.random() * 100),
+            phone: '919876500000'
+        };
         try {
-            const orderTotal = 200; const pointsEarned = Math.floor(orderTotal);
+            const orderTotal = 200;
+            const pointsEarned = Math.floor(orderTotal);
+
             await addDoc(collection(db, 'live_orders'), {
-                userId: userId, customerName: testCustomer.name, customerPhone: testCustomer.phone,
-                items: [ { name: restaurant.dishes[0]?.name || 'Test Dish 1', quantity: 1, price: 100 }, { name: restaurant.dishes[1]?.name || 'Test Dish 2', quantity: 2, price: 50 } ],
-                total: orderTotal, status: 'pending', createdAt: Timestamp.now()
+                userId: userId,
+                customerName: testCustomer.name,
+                customerPhone: testCustomer.phone,
+                items: [
+                    { name: restaurant.dishes[0]?.name || 'Test Dish 1', quantity: 1, price: 100 },
+                    { name: restaurant.dishes[1]?.name || 'Test Dish 2', quantity: 2, price: 50 }
+                ],
+                total: orderTotal,
+                status: 'pending',
+                createdAt: Timestamp.now()
             });
+
             const customerDocId = `${userId}_${testCustomer.phone}`;
             const customerRef = doc(db, 'customers', customerDocId);
             const customerSnap = await getDoc(customerRef);
-            let currentPoints = 0; let notificationAlreadySent = false;
-            if (customerSnap.exists()) { currentPoints = customerSnap.data().loyaltyPoints || 0; notificationAlreadySent = customerSnap.data().pointsNotificationSent || false; }
+            let currentPoints = 0;
+            let notificationAlreadySent = false;
+
+            if (customerSnap.exists()) {
+                currentPoints = customerSnap.data().loyaltyPoints || 0;
+                notificationAlreadySent = customerSnap.data().pointsNotificationSent || false;
+            }
+
             const newTotalPoints = currentPoints + pointsEarned;
-            await setDoc(customerRef, { userId: userId, name: testCustomer.name, phone: testCustomer.phone, lastOrderAt: Timestamp.now(), loyaltyPoints: increment(pointsEarned), pointsNotificationSent: newTotalPoints >= 1000 ? notificationAlreadySent : false }, { merge: true });
+
+            await setDoc(customerRef, {
+                userId: userId, name: testCustomer.name, phone: testCustomer.phone,
+                lastOrderAt: Timestamp.now(),
+                loyaltyPoints: increment(pointsEarned),
+                pointsNotificationSent: newTotalPoints >= 1000 ? notificationAlreadySent : false // Reset flag if below 1000
+            }, { merge: true });
+
             if (newTotalPoints >= 1000 && !notificationAlreadySent) {
+                console.log(`Customer ${testCustomer.name} reached 1000 points! Sending notification...`);
                 const message = `🎉 Congratulations ${testCustomer.name}! You've reached ${newTotalPoints} loyalty points at ${restaurant.name}! Enjoy a special 1+1 offer on your next order as our valued customer! 🎁`;
                 const encodedText = encodeURIComponent(message);
                 const whatsappUrl = `https://wa.me/${testCustomer.phone}?text=${encodedText}`;
@@ -543,7 +664,8 @@ const LiveOrdersScreen = ({ restaurant, userId }) => {
 
     const updateOrderStatus = async (orderId, newStatus) => {
         const orderRef = doc(db, 'live_orders', orderId);
-        try { await updateDoc(orderRef, { status: newStatus }); } catch (error) { console.error("Error updating order status: ", error); }
+        try { await updateDoc(orderRef, { status: newStatus }); }
+        catch (error) { console.error("Error updating order status: ", error); }
     };
 
     return (
@@ -650,6 +772,7 @@ const MarketingScreen = ({ restaurant, userId }) => {
 
 const InventoryScreen = ({ restaurant, userId }) => {
     const [inventory, setInventory] = useState([]);
+    const [checklist, setChecklist] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newItem, setNewItem] = useState({ name: '', currentStock: '', unit: 'kg', lowStockThreshold: '' });
     const [showAddItem, setShowAddItem] = useState(false);
@@ -885,7 +1008,7 @@ const AIInsightsScreen = ({ restaurant, userId }) => {
     
     const sendInsightsToWhatsApp = (reportContent, reportType) => {
         if (!restaurant.phone) { alert("Add phone in Settings."); return; }
-        const message = `*${type} Report*\n\n${reportContent}`;
+        const message = `*${reportType} Report*\n\n${reportContent}`;
         const encodedText = encodeURIComponent(message);
         const whatsappUrl = `https://wa.me/${restaurant.phone}?text=${encodedText}`;
         window.open(whatsappUrl, '_blank');
@@ -1003,7 +1126,7 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
      }, [restaurant]);
 
     const handleAddDish = () => {
-        if (!newDishName.trim() || !newDishCost.trim()) { alert("Please enter both a name and a cost."); return; }
+        if (newDishName.trim() === '') return;
         const newDish = { id: `dish${Date.now()}`, name: newDishName.trim(), cost: parseFloat(newDishCost) };
         setDishes([...dishes, newDish]); setNewDishName(''); setNewDishCost('');
      };
@@ -1065,8 +1188,10 @@ const SettingsScreen = ({ user, restaurant, updateRestaurant }) => {
                 </div> 
             </div>
             <button onClick={handleSaveChanges} disabled={isSaving} className="w-full mb-4 bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition duration-300"> {isSaving ? 'Saving...' : 'Save All Changes'} </button>
+            {/* QR Codes */}
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Ordering QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${window.location.origin}/menu/${user.uid}`} alt="QR Code" /> </div></div> <p className="text-xs text-gray-500 mb-3">Scan to order!</p> <button onClick={shareQrViaWhatsApp} className="w-full bg-green-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-600 transition duration-300 flex items-center justify-center text-sm"> <Share2Icon className="h-5 w-5 mr-2" /> Share Link </button> </div>
             <div className="bg-white p-4 rounded-lg shadow mb-4 text-center"> <h3 className="font-bold text-lg mb-2">Feedback QR</h3> <div className="flex justify-center my-2"><div className="p-2 border rounded-md"> <img src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${feedbackUrl}`} alt="Feedback QR" /> </div></div> <p className="text-xs text-gray-500 mb-3">Place on tables/receipts.</p> </div>
+            {/* Sign Out */}
             <button onClick={() => signOut(auth)} className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition duration-300 flex items-center justify-center"> <LogOutIcon className="h-6 w-6 mr-2" /> Sign Out </button>
         </div>
     );
