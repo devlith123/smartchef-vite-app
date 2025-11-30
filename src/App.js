@@ -1,5 +1,4 @@
-import React from 'react';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
     getAuth,
@@ -66,7 +65,7 @@ const applyTheme = (color) => {
             const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
             return luminance;
         } catch (e) {
-            return 0;
+            return 0; // Default to dark background luminance on error
         }
      };
     const luminance = calculateLuminance(validColor);
@@ -83,7 +82,7 @@ const applyTheme = (color) => {
             r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
             return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
         } catch (e) {
-            return validColor; 
+            return validColor; // Return original valid color on error
         }
      };
     const hoverColor = darkenColor(validColor, 20);
@@ -244,7 +243,7 @@ const LoadingScreen = ({ message }) => (
      <div className="flex items-center justify-center h-screen bg-gray-100"> <div className="text-xl font-semibold text-gray-700">{message}</div> </div>
 );
 
-const AuthScreen = ({}) => {
+const AuthScreen = () => {
      const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
